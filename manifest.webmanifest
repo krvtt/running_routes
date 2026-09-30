@@ -1,0 +1,16 @@
+{
+  "name": "Laufrouten Hamburg",
+  "short_name": "Laufrouten",
+  "description": "Laufrouten mit Wunschlänge für Hamburg – OpenStreetMap und BRouter.",
+  "lang": "de",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f6f8",
+  "theme_color": "#1747c2",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

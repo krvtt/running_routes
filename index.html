@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Laufrouten Hamburg</title>
+<meta name="description" content="Laufrouten mit Wunschlänge für Hamburg – OpenStreetMap und BRouter, ohne Konto und ohne Abo.">
+<meta name="theme-color" content="#1747c2">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Laufrouten">
+<link rel="stylesheet" href="leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>Laufrouten</h1>
+  <button class="ghost" id="installBtn" type="button" hidden>Installieren</button>
+  <button class="ghost" id="histBtn" type="button" aria-pressed="false">Verlauf</button>
+  <button class="ghost" id="setBtn" type="button" aria-pressed="false">Einstellungen</button>
+</header>
+<div id="map" role="application" aria-label="Karte"></div>
+<main>
+  <!-- Verlauf -->
+  <section class="card panel" id="histPanel" hidden>
+    <div class="row between"><h2>Verlauf</h2><button class="ghost" type="button" data-close="histPanel">Schließen</button></div>
+    <div class="list" id="histList"></div>
+    <div class="row">
+      <button type="button" class="grow danger" id="histClear">Verlauf leeren</button>
+    </div>
+  </section>
+
+  <!-- Einstellungen -->
+  <section class="card panel" id="setPanel" hidden>
+    <div class="row between"><h2>Einstellungen</h2><button class="ghost" type="button" data-close="setPanel">Schließen</button></div>
+    <div class="grid-pt">
+      <label for="basePace">Dein normales Dauerlauf-Tempo (min/km)</label>
+      <input type="text" id="basePace" inputmode="decimal" value="6:45">
+      <p class="hint">Daraus leiten sich die Tempi der Trainingsarten ab. Einzelne Tempi kannst du vor jeder Berechnung ändern.</p>
+    </div>
+    <div class="grid-pt">
+      <span class="lbl">Favoriten</span>
+      <div class="list" id="favList"></div>
+    </div>
+    <div class="grid-pt">
+      <span class="lbl">Daten sichern</span>
+      <div class="row">
+        <button type="button" class="grow" id="exportBtn">Exportieren</button>
+        <button type="button" class="grow" id="importBtn">Importieren</button>
+        <input type="file" id="importFile" accept="application/json,.json" hidden>
+      </div>
+      <p class="hint" id="storeInfo">Favoriten, Verlauf und Einstellungen bleiben nur auf diesem Gerät.</p>
+    </div>
+    <div class="grid-pt">
+      <label for="themeSel">Farbschema</label>
+      <select id="themeSel"><option value="auto">Automatisch</option><option value="light">Hell</option><option value="dark">Dunkel</option></select>
+      <label for="tileSel">Kartenkacheln</label>
+      <select id="tileSel">
+        <option value="osm">OpenStreetMap (Standard)</option>
+        <option value="osmde">OpenStreetMap Deutschland</option>
+        <option value="carto">CARTO hell (Notlösung)</option>
+      </select>
+      <label for="serverInput">Routing-Server</label>
+      <input type="url" id="serverInput" value="https://brouter.de" spellcheck="false">
+      <p class="hint">Öffentlicher BRouter-Server. Später kann hier die Adresse deines eigenen Servers (NAS) stehen.</p>
+    </div>
+    <p class="hint" id="installHint">Als App installieren: Android/Chrome „App installieren“ oder „Zum Startbildschirm“, iPhone/Safari Teilen → „Zum Home-Bildschirm“, Windows/Mac Chrome oder Edge: Symbol in der Adressleiste, Mac/Safari: Ablage → „Zum Dock hinzufügen“.</p>
+    <p class="hint" id="versionInfo"></p>
+  </section>
+
+  <!-- Trainingsart -->
+  <section class="card">
+    <span class="lbl">Trainingsart</span>
+    <div class="presets" id="presets" role="group" aria-label="Trainingsart"></div>
+    <p class="hint" id="presetHint"></p>
+  </section>
+
+  <!-- Start / Ziel -->
+  <section class="card">
+    <div class="seg" role="group" aria-label="Streckenart">
+      <button type="button" id="modeAB" aria-pressed="true">A → B</button>
+      <button type="button" id="modeRT" aria-pressed="false">Rundkurs</button>
+    </div>
+    <div class="grid-pt" data-block="start">
+      <div class="row between"><label for="startInput">Start</label><span class="pt" id="startPt">noch nicht gesetzt</span></div>
+      <div class="chips" data-favs="start"></div>
+      <form class="row" data-search="start">
+        <input class="grow" type="text" id="startInput" placeholder="Adresse, z. B. Jungfernstieg" autocomplete="off" enterkeyhint="search">
+        <button type="submit">Suchen</button>
+      </form>
+      <div class="results" id="startResults"></div>
+      <div class="row">
+        <button type="button" class="grow" data-gps="start">GPS</button>
+        <button type="button" class="grow" data-pick="start" aria-pressed="false">Auf Karte</button>
+        <button type="button" class="grow" data-fav="start">Merken</button>
+      </div>
+      <form class="row" data-favform="start" hidden>
+        <input class="grow" type="text" id="startFavName" placeholder="Name, z. B. Zuhause" autocomplete="off">
+        <button type="submit">Speichern</button>
+      </form>
+    </div>
+    <div class="grid-pt" data-block="end" id="endBlock">
+      <div class="row between"><label for="endInput">Ziel</label><span class="pt" id="endPt">noch nicht gesetzt</span></div>
+      <div class="chips" data-favs="end"></div>
+      <form class="row" data-search="end">
+        <input class="grow" type="text" id="endInput" placeholder="Adresse" autocomplete="off" enterkeyhint="search">
+        <button type="submit">Suchen</button>
+      </form>
+      <div class="results" id="endResults"></div>
+      <div class="row">
+        <button type="button" class="grow" data-gps="end">GPS</button>
+        <button type="button" class="grow" data-pick="end" aria-pressed="false">Auf Karte</button>
+        <button type="button" class="grow" data-fav="end">Merken</button>
+      </div>
+      <form class="row" data-favform="end" hidden>
+        <input class="grow" type="text" id="endFavName" placeholder="Name, z. B. Arbeit" autocomplete="off">
+        <button type="submit">Speichern</button>
+      </form>
+      <button type="button" class="ghost" id="swapBtn">Start und Ziel tauschen</button>
+    </div>
+  </section>
+
+  <!-- Länge -->
+  <section class="card">
+    <div id="lenBlock" class="grid-pt">
+      <div class="seg" role="group" aria-label="Länge angeben als">
+        <button type="button" id="lenKm" aria-pressed="true">Kilometer</button>
+        <button type="button" id="lenDur" aria-pressed="false">Dauer</button>
+      </div>
+      <div class="row">
+        <div class="grow" id="kmWrap"><label for="kmInput">Länge (km)</label><input type="number" id="kmInput" inputmode="decimal" min="1" max="42" step="0.5" value="8"></div>
+        <div class="grow" id="durWrap" hidden><label for="durInput">Dauer (min)</label><input type="number" id="durInput" inputmode="numeric" min="10" max="300" step="5" value="45"></div>
+        <div class="grow"><label for="paceInput">Tempo (min/km)</label><input type="text" id="paceInput" inputmode="decimal" value="6:45"></div>
+      </div>
+    </div>
+    <div id="lapBlock" class="row" hidden>
+      <div class="grow"><label for="lapInput">Rundenlänge (m)</label><input type="number" id="lapInput" inputmode="numeric" min="300" max="3000" step="100" value="1000"></div>
+      <div class="grow"><label for="repsInput">Wiederholungen</label><input type="number" id="repsInput" inputmode="numeric" min="1" max="20" step="1" value="5"></div>
+      <div class="grow"><label for="lapPace">Tempo (min/km)</label><input type="text" id="lapPace" inputmode="decimal" value="6:00"></div>
+    </div>
+    <div class="calc" id="calcOut"></div>
+    <label class="check"><input type="checkbox" id="stridesChk"> Steigerungen: gerade Strecke ≥ 100 m ohne Querung markieren</label>
+    <button type="button" class="primary" id="goBtn">Route berechnen</button>
+    <p id="status" role="status" aria-live="polite"></p>
+  </section>
+
+  <!-- Ergebnis -->
+  <section class="card" id="resCard" hidden>
+    <span class="lbl">Varianten, beste zuerst</span>
+    <div class="variants" id="variants"></div>
+    <div id="detail" class="block" style="gap:12px"></div>
+    <div class="row">
+      <button type="button" class="grow" id="gpxBtn">GPX speichern</button>
+      <button type="button" class="grow" id="shareBtn" hidden>GPX teilen</button>
+    </div>
+    <button type="button" id="againBtn">Andere Varianten</button>
+    <p class="hint">Karte: Zahlen = km, rote Punkte = Ampel, orange Kästchen = Querung ohne Ampel (Zahl = Risiko 1–6). Route vor dem Loslaufen prüfen: OSM kann über gesperrte oder private Wege führen.</p>
+  </section>
+
+  <footer>Routing: <a href="https://brouter.de" target="_blank" rel="noopener">BRouter</a> · Karten und Daten: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">© OpenStreetMap-Mitwirkende</a> · Suche: Nominatim</footer>
+</main>
+<script src="leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
