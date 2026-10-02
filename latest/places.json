@@ -1,0 +1,161 @@
+{
+ "Außenalster, Hamburg": {
+  "box": [
+   53.5571132,
+   53.580721,
+   9.995885,
+   10.0161032
+  ],
+  "label": "Außenalster, Hamburg-Nord, Hamburg, Deutschland",
+  "lat": 53.5689488,
+  "lon": 10.0073055
+ },
+ "Bahnhof Altona, Hamburg": {
+  "box": [
+   53.5524677,
+   53.5564696,
+   9.9352314,
+   9.9355098
+  ],
+  "label": "Hamburg-Altona, Lessingtunnel, Altona-Nord, Altona, Hamburg, 22765, Deutschland",
+  "lat": 53.5544836,
+  "lon": 9.9353817
+ },
+ "Bahnhof Dammtor, Hamburg": {
+  "box": [
+   53.5603302,
+   53.5613374,
+   9.9888623,
+   9.9903201
+  ],
+  "label": "Hamburg Dammtor Bahnhof, 1, Theodor-Heuss-Platz, Rotherbaum, Eimsbüttel, Hamburg",
+  "lat": 53.560831,
+  "lon": 9.9895967
+ },
+ "Bahnhof Sternschanze, Hamburg": {
+  "box": [
+   53.5588296,
+   53.5688296,
+   9.9627995,
+   9.9727995
+  ],
+  "label": "Sternschanze (Messe), Sternschanze, Altona, Hamburg, 20357, Deutschland",
+  "lat": 53.5638296,
+  "lon": 9.9677995
+ },
+ "Berlin Hauptbahnhof, Berlin": {
+  "box": [
+   52.5242887,
+   52.52574,
+   13.3682756,
+   13.3706245
+  ],
+  "label": "Berlin Hauptbahnhof, Eingangsebene, Europacity, Moabit, Mitte, Berlin, 10557, De",
+  "lat": 52.5250175,
+  "lon": 13.369448
+ },
+ "Brandenburger Tor, Berlin": {
+  "box": [
+   52.516117,
+   52.5164328,
+   13.3775798,
+   13.3778251
+  ],
+  "label": "Brandenburger Tor, 1, Pariser Platz, Friedrich-Wilhelm-Stadt, Mitte, Berlin, 101",
+  "lat": 52.5162699,
+  "lon": 13.3777034
+ },
+ "Großer Tiergarten, Berlin": {
+  "box": [
+   52.5092073,
+   52.5197096,
+   13.3316518,
+   13.3770984
+  ],
+  "label": "Großer Tiergarten, Mitte, Berlin, Deutschland",
+  "lat": 52.5163027,
+  "lon": 13.3618184
+ },
+ "Hauptbahnhof, Hamburg": {
+  "box": [
+   53.5519592,
+   53.5539937,
+   10.0052987,
+   10.0083488
+  ],
+  "label": "Hamburg Hauptbahnhof, Steintordamm, St. Georg, Hamburg-Mitte, Hamburg, 20099, De",
+  "lat": 53.5529844,
+  "lon": 10.0067569
+ },
+ "Planetarium Hamburg, Hamburg": {
+  "box": [
+   53.5970687,
+   53.5975672,
+   10.0085426,
+   10.0093187
+  ],
+  "label": "Planetarium, 1, Linnering, Winterhude, Hamburg-Nord, Hamburg, 22299, Deutschland",
+  "lat": 53.597313,
+  "lon": 10.0089113
+ },
+ "Planten un Blomen, Hamburg": {
+  "box": [
+   53.550064,
+   53.5636795,
+   9.9711549,
+   9.9888118
+  ],
+  "label": "Planten un Blomen, Holstenwall, Portugiesenviertel, Neustadt, Hamburg-Mitte, Ham",
+  "lat": 53.5619584,
+  "lon": 9.9813309
+ },
+ "Stadtpark, Hamburg": {
+  "box": [
+   53.5909812,
+   53.6002507,
+   10.0032713,
+   10.0317822
+  ],
+  "label": "Hamburger Stadtpark, Hamburg-Nord, Hamburg, Deutschland",
+  "lat": 53.5956195,
+  "lon": 10.0176691
+ },
+ "Sternschanzenpark, Hamburg": {
+  "box": [
+   53.564008,
+   53.5673174,
+   9.9661031,
+   9.976415
+  ],
+  "label": "Sternschanzenpark, Sternschanze, Altona, Hamburg, 20357, Deutschland",
+  "lat": 53.565686,
+  "lon": 9.970159
+ },
+ "Tempelhofer Feld, Berlin": {
+  "box": [
+   52.4656349,
+   52.4832726,
+   13.3860533,
+   13.4205262
+  ],
+  "label": "Tempelhofer Feld, Tempelhof-Schöneberg, Berlin, Deutschland",
+  "lat": 52.4744192,
+  "lon": 13.4026007
+ },
+ "U-Bahnhof Christuskirche, Hamburg": null,
+ "U-Bahnhof Hoheluftbrücke, Hamburg": null,
+ "U-Bahnhof Kellinghusenstraße, Hamburg": null,
+ "U-Bahnhof Ritterstraße, Hamburg": null,
+ "U-Bahnhof Uhlandstraße, Hamburg": null,
+ "Wandsbek Markt, Hamburg": {
+  "box": [
+   53.5666636,
+   53.5766636,
+   10.0617414,
+   10.0717414
+  ],
+  "label": "Wandsbek Markt, Wandsbeker Marktplatz, Wandsbek, Hamburg, 22041, Deutschland",
+  "lat": 53.5716636,
+  "lon": 10.0667414
+ }
+}

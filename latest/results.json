@@ -1,0 +1,1122 @@
+{
+ "summary": {
+  "neu": {
+   "cases": 13,
+   "ok": 8,
+   "green": 0.615,
+   "street": 0.309,
+   "sidewalk": 0.14,
+   "signals_km": 0.842,
+   "crossings_km": 0.171,
+   "turns_km": 4.365,
+   "spurs": 0,
+   "in_band": 8,
+   "area_hits": 9,
+   "area_total": 9,
+   "requests": 9.75,
+   "seconds": 1.888,
+   "best_green": 0.637
+  },
+  "alt (3aa0e38)": {
+   "cases": 13,
+   "ok": 8,
+   "green": 0.672,
+   "street": 0.122,
+   "sidewalk": 0.0,
+   "signals_km": 1.018,
+   "crossings_km": 0.173,
+   "turns_km": 3.689,
+   "spurs": 0,
+   "in_band": 8,
+   "area_hits": 9,
+   "area_total": 9,
+   "requests": 8.875,
+   "seconds": 1.475,
+   "best_green": 0.687
+  }
+ },
+ "results": {
+  "neu": [
+   {
+    "id": "hh-dammtor-rk8",
+    "preset": "dauer",
+    "ok": true,
+    "seconds": 3.3,
+    "status": "Fertig in 3.2 s (7 Anfragen). 3 Varianten, beste zuerst.",
+    "requests": 7,
+    "variants": [
+     {
+      "dist": 7780,
+      "cost_per_m": 1.644,
+      "green": 0.682,
+      "street": 0.217,
+      "sidewalk": 0.045,
+      "big": 0.0,
+      "route": 0.368,
+      "signals_km": 1.54,
+      "crossings_km": 0.13,
+      "turns_km": 2.44,
+      "spurs": 0,
+      "name": "Rundkurs nach Osten",
+      "dev": -220,
+      "areas": {
+       "Planten un Blomen": 90,
+       "Außenalster": 3747
+      }
+     },
+     {
+      "dist": 8714,
+      "cost_per_m": 1.708,
+      "green": 0.593,
+      "street": 0.306,
+      "sidewalk": 0.189,
+      "big": 0.0,
+      "route": 0.392,
+      "signals_km": 1.26,
+      "crossings_km": 0.23,
+      "turns_km": 3.21,
+      "spurs": 0,
+      "name": "Rundkurs nach Norden",
+      "dev": 714,
+      "areas": {
+       "Planten un Blomen": 1124,
+       "Außenalster": 3762
+      }
+     },
+     {
+      "dist": 8261,
+      "cost_per_m": 1.737,
+      "green": 0.597,
+      "street": 0.217,
+      "sidewalk": 0.03,
+      "big": 0.0,
+      "route": 0.431,
+      "signals_km": 1.21,
+      "crossings_km": 0.0,
+      "turns_km": 3.99,
+      "spurs": 0,
+      "name": "Rundkurs nach Südosten",
+      "dev": 261,
+      "areas": {
+       "Planten un Blomen": 275,
+       "Außenalster": 2035
+      }
+     }
+    ]
+   },
+   {
+    "id": "hh-hbf-schanze-ab10",
+    "preset": "dauer",
+    "ok": true,
+    "seconds": 1.8,
+    "status": "Fertig in 1.8 s (10 Anfragen). 3 Varianten, beste zuerst.",
+    "requests": 10,
+    "variants": [
+     {
+      "dist": 10806,
+      "cost_per_m": 1.456,
+      "green": 0.674,
+      "street": 0.282,
+      "sidewalk": 0.143,
+      "big": 0.0,
+      "route": 0.451,
+      "signals_km": 0.56,
+      "crossings_km": 0.28,
+      "turns_km": 2.96,
+      "spurs": 0,
+      "name": "Bogen nach Nordosten",
+      "dev": 806,
+      "areas": {
+       "Planten un Blomen": 1038,
+       "Sternschanzenpark": 646
+      }
+     },
+     {
+      "dist": 10593,
+      "cost_per_m": 1.843,
+      "green": 0.464,
+      "street": 0.485,
+      "sidewalk": 0.396,
+      "big": 0.0,
+      "route": 0.264,
+      "signals_km": 1.89,
+      "crossings_km": 0.0,
+      "turns_km": 3.02,
+      "spurs": 0,
+      "name": "Bogen nach Norden",
+      "dev": 593,
+      "areas": {
+       "Planten un Blomen": 0,
+       "Sternschanzenpark": 498
+      }
+     },
+     {
+      "dist": 10707,
+      "cost_per_m": 1.975,
+      "green": 0.338,
+      "street": 0.499,
+      "sidewalk": 0.002,
+      "big": 0.0,
+      "route": 0.176,
+      "signals_km": 0.84,
+      "crossings_km": 0.19,
+      "turns_km": 2.15,
+      "spurs": 0,
+      "name": "Bogen nach Süden",
+      "dev": 707,
+      "areas": {
+       "Planten un Blomen": 1619,
+       "Sternschanzenpark": 87
+      }
+     }
+    ]
+   },
+   {
+    "id": "hh-ritterstrasse-rk10",
+    "preset": "dauer",
+    "ok": false,
+    "error": "Ort nicht gefunden"
+   },
+   {
+    "id": "hh-wandsbek-uhland-ab8",
+    "preset": "dauer",
+    "ok": false,
+    "error": "Ort nicht gefunden"
+   },
+   {
+    "id": "hh-christuskirche-hoheluft-ab6",
+    "preset": "dauer",
+    "ok": false,
+    "error": "Ort nicht gefunden"
+   },
+   {
+    "id": "hh-kellinghusen-rk8",
+    "preset": "dauer",
+    "ok": false,
+    "error": "Ort nicht gefunden"
+   },
+   {
+    "id": "hh-planetarium-lang14",
+    "preset": "lang",
+    "ok": true,
+    "seconds": 1.9,
+    "status": "Fertig in 1.8 s (10 Anfragen). 3 Varianten, beste zuerst.",
+    "requests": 10,
+    "variants": [
+     {
+      "dist": 13977,
+      "cost_per_m": 1.789,
+      "green": 0.617,
+      "street": 0.265,
+      "sidewalk": 0.061,
+      "big": 0.01,
+      "route": 0.112,
+      "signals_km": 1.22,
+      "crossings_km": 0.0,
+      "turns_km": 5.8,
+      "spurs": 0,
+      "name": "Rundkurs nach Osten",
+      "dev": -23,
+      "areas": {
+       "Stadtpark": 2953,
+       "Außenalster": 0
+      }
+     },
+     {
+      "dist": 14220,
+      "cost_per_m": 1.844,
+      "green": 0.471,
+      "street": 0.359,
+      "sidewalk": 0.097,
+      "big": 0.0,
+      "route": 0.084,
+      "signals_km": 1.13,
+      "crossings_km": 0.0,
+      "turns_km": 4.78,
+      "spurs": 0,
+      "name": "Rundkurs nach Norden",
+      "dev": 220,
+      "areas": {
+       "Stadtpark": 2225,
+       "Außenalster": 0
+      }
+     },
+     {
+      "dist": 13937,
+      "cost_per_m": 1.963,
+      "green": 0.452,
+      "street": 0.468,
+      "sidewalk": 0.123,
+      "big": 0.007,
+      "route": 0.121,
+      "signals_km": 0.86,
+      "crossings_km": 0.5,
+      "turns_km": 4.38,
+      "spurs": 0,
+      "name": "Rundkurs nach Südosten",
+      "dev": -63,
+      "areas": {
+       "Stadtpark": 2351,
+       "Außenalster": 2586
+      }
+     }
+    ]
+   },
+   {
+    "id": "hh-altona-recovery5",
+    "preset": "recovery",
+    "ok": true,
+    "seconds": 1.0,
+    "status": "Fertig in 1.0 s (10 Anfragen). 3 Varianten, beste zuerst.",
+    "requests": 10,
+    "variants": [
+     {
+      "dist": 4749,
+      "cost_per_m": 2.348,
+      "green": 0.376,
+      "street": 0.402,
+      "sidewalk": 0.012,
+      "big": 0.0,
+      "route": 0.187,
+      "signals_km": 1.26,
+      "crossings_km": 0.21,
+      "turns_km": 7.16,
+      "spurs": 0,
+      "name": "Rundkurs nach Süden",
+      "dev": -251,
+      "areas": {}
+     },
+     {
+      "dist": 5647,
+      "cost_per_m": 2.516,
+      "green": 0.344,
+      "street": 0.406,
+      "sidewalk": 0.054,
+      "big": 0.009,
+      "route": 0.0,
+      "signals_km": 1.77,
+      "crossings_km": 0.35,
+      "turns_km": 3.72,
+      "spurs": 0,
+      "name": "Rundkurs nach Osten",
+      "dev": 647,
+      "areas": {}
+     },
+     {
+      "dist": 4397,
+      "cost_per_m": 2.535,
+      "green": 0.348,
+      "street": 0.496,
+      "sidewalk": 0.049,
+      "big": 0.0,
+      "route": 0.151,
+      "signals_km": 1.36,
+      "crossings_km": 0.45,
+      "turns_km": 5.0,
+      "spurs": 0,
+      "name": "Rundkurs nach Südosten",
+      "dev": -603,
+      "areas": {}
+     }
+    ]
+   },
+   {
+    "id": "hh-planten-intervall",
+    "preset": "intervall",
+    "ok": true,
+    "seconds": 2.0,
+    "status": "Fertig in 2.0 s (16 Anfragen). 3 Varianten, beste zuerst.",
+    "requests": 16,
+    "variants": [
+     {
+      "dist": 890,
+      "cost_per_m": 1.365,
+      "green": 0.842,
+      "street": 0.158,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.0,
+      "signals_km": 0.0,
+      "crossings_km": 0.0,
+      "turns_km": 6.74,
+      "spurs": 0,
+      "name": "Runde nach Südosten",
+      "dev": -110,
+      "areas": {
+       "Planten un Blomen": 891
+      }
+     },
+     {
+      "dist": 979,
+      "cost_per_m": 1.371,
+      "green": 0.815,
+      "street": 0.185,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.0,
+      "signals_km": 0.0,
+      "crossings_km": 0.0,
+      "turns_km": 14.3,
+      "spurs": 0,
+      "name": "Runde nach Norden",
+      "dev": -21,
+      "areas": {
+       "Planten un Blomen": 833
+      }
+     },
+     {
+      "dist": 789,
+      "cost_per_m": 1.109,
+      "green": 1.0,
+      "street": 0.0,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.0,
+      "signals_km": 0.0,
+      "crossings_km": 0.0,
+      "turns_km": 11.41,
+      "spurs": 0,
+      "name": "Runde nach Osten",
+      "dev": -211,
+      "areas": {
+       "Planten un Blomen": 789
+      }
+     }
+    ]
+   },
+   {
+    "id": "hh-kellinghusen-tempo8",
+    "preset": "tempo",
+    "ok": false,
+    "error": "Ort nicht gefunden"
+   },
+   {
+    "id": "b-brandenburger-rk10",
+    "preset": "dauer",
+    "ok": true,
+    "seconds": 1.9,
+    "status": "Fertig in 1.8 s (7 Anfragen). 3 Varianten, beste zuerst.",
+    "requests": 7,
+    "variants": [
+     {
+      "dist": 10391,
+      "cost_per_m": 1.753,
+      "green": 0.546,
+      "street": 0.38,
+      "sidewalk": 0.287,
+      "big": 0.0,
+      "route": 0.406,
+      "signals_km": 1.35,
+      "crossings_km": 0.1,
+      "turns_km": 4.52,
+      "spurs": 0,
+      "name": "Rundkurs nach Südosten",
+      "dev": 391,
+      "areas": {
+       "Großer Tiergarten": 1148
+      }
+     },
+     {
+      "dist": 10586,
+      "cost_per_m": 1.824,
+      "green": 0.505,
+      "street": 0.421,
+      "sidewalk": 0.373,
+      "big": 0.0,
+      "route": 0.133,
+      "signals_km": 0.85,
+      "crossings_km": 0.28,
+      "turns_km": 4.91,
+      "spurs": 0,
+      "name": "Rundkurs nach Nordwesten",
+      "dev": 586,
+      "areas": {
+       "Großer Tiergarten": 3158
+      }
+     },
+     {
+      "dist": 10135,
+      "cost_per_m": 1.866,
+      "green": 0.489,
+      "street": 0.438,
+      "sidewalk": 0.419,
+      "big": 0.0,
+      "route": 0.183,
+      "signals_km": 1.58,
+      "crossings_km": 0.1,
+      "turns_km": 5.92,
+      "spurs": 0,
+      "name": "Rundkurs nach Norden",
+      "dev": 135,
+      "areas": {
+       "Großer Tiergarten": 429
+      }
+     }
+    ]
+   },
+   {
+    "id": "b-hbf-tempelhof-ab12",
+    "preset": "dauer",
+    "ok": true,
+    "seconds": 1.0,
+    "status": "Fertig in 0.9 s (5 Anfragen). 3 Varianten, beste zuerst.",
+    "requests": 5,
+    "variants": [
+     {
+      "dist": 11430,
+      "cost_per_m": 1.479,
+      "green": 0.731,
+      "street": 0.234,
+      "sidewalk": 0.198,
+      "big": 0.0,
+      "route": 0.524,
+      "signals_km": 0.52,
+      "crossings_km": 0.26,
+      "turns_km": 3.24,
+      "spurs": 0,
+      "name": "Bogen nach Südwesten",
+      "dev": -570,
+      "areas": {
+       "Großer Tiergarten": 1179
+      }
+     },
+     {
+      "dist": 11679,
+      "cost_per_m": 1.601,
+      "green": 0.668,
+      "street": 0.313,
+      "sidewalk": 0.251,
+      "big": 0.0,
+      "route": 0.368,
+      "signals_km": 1.2,
+      "crossings_km": 0.0,
+      "turns_km": 3.94,
+      "spurs": 0,
+      "name": "Bogen nach Osten",
+      "dev": -321,
+      "areas": {
+       "Großer Tiergarten": 0
+      }
+     },
+     {
+      "dist": 11794,
+      "cost_per_m": 1.629,
+      "green": 0.64,
+      "street": 0.28,
+      "sidewalk": 0.23,
+      "big": 0.0,
+      "route": 0.276,
+      "signals_km": 1.44,
+      "crossings_km": 0.0,
+      "turns_km": 4.58,
+      "spurs": 0,
+      "name": "Bogen nach Nordosten",
+      "dev": -206,
+      "areas": {
+       "Großer Tiergarten": 0
+      }
+     }
+    ]
+   },
+   {
+    "id": "b-tempelhof-wettkampf10",
+    "preset": "wettkampf",
+    "ok": true,
+    "seconds": 2.2,
+    "status": "Fertig in 2.2 s (13 Anfragen). 3 Varianten, beste zuerst.",
+    "requests": 13,
+    "variants": [
+     {
+      "dist": 10193,
+      "cost_per_m": 1.746,
+      "green": 0.451,
+      "street": 0.538,
+      "sidewalk": 0.375,
+      "big": 0.0,
+      "route": 0.024,
+      "signals_km": 0.29,
+      "crossings_km": 0.39,
+      "turns_km": 2.06,
+      "spurs": 0,
+      "name": "Rundkurs nach Süden",
+      "dev": 193,
+      "areas": {}
+     },
+     {
+      "dist": 10004,
+      "cost_per_m": 1.766,
+      "green": 0.363,
+      "street": 0.544,
+      "sidewalk": 0.425,
+      "big": 0.0,
+      "route": 0.074,
+      "signals_km": 0.4,
+      "crossings_km": 0.0,
+      "turns_km": 4.5,
+      "spurs": 0,
+      "name": "Rundkurs nach Westen",
+      "dev": 4,
+      "areas": {}
+     },
+     {
+      "dist": 9583,
+      "cost_per_m": 1.737,
+      "green": 0.472,
+      "street": 0.435,
+      "sidewalk": 0.372,
+      "big": 0.0,
+      "route": 0.16,
+      "signals_km": 0.63,
+      "crossings_km": 0.0,
+      "turns_km": 2.82,
+      "spurs": 0,
+      "name": "Rundkurs nach Südosten",
+      "dev": -417,
+      "areas": {}
+     }
+    ]
+   }
+  ],
+  "alt (3aa0e38)": [
+   {
+    "id": "hh-dammtor-rk8",
+    "preset": "dauer",
+    "ok": true,
+    "seconds": 2.5,
+    "status": "Fertig in 2.5 s (9 Anfragen). 3 Varianten, beste zuerst.",
+    "requests": 9,
+    "variants": [
+     {
+      "dist": 7856,
+      "cost_per_m": 1.882,
+      "green": 0.716,
+      "street": 0.173,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.377,
+      "signals_km": 1.4,
+      "crossings_km": 0.13,
+      "turns_km": 2.67,
+      "spurs": 0,
+      "name": "Rundkurs nach Osten",
+      "dev": -144,
+      "areas": {
+       "Planten un Blomen": 90,
+       "Außenalster": 3848
+      }
+     },
+     {
+      "dist": 8455,
+      "cost_per_m": 1.964,
+      "green": 0.6,
+      "street": 0.122,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.305,
+      "signals_km": 1.66,
+      "crossings_km": 0.12,
+      "turns_km": 3.19,
+      "spurs": 0,
+      "name": "Rundkurs nach Norden",
+      "dev": 455,
+      "areas": {
+       "Planten un Blomen": 1060,
+       "Außenalster": 3677
+      }
+     },
+     {
+      "dist": 7994,
+      "cost_per_m": 2.112,
+      "green": 0.531,
+      "street": 0.277,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.337,
+      "signals_km": 1.5,
+      "crossings_km": 0.0,
+      "turns_km": 3.25,
+      "spurs": 0,
+      "name": "Rundkurs nach Südosten",
+      "dev": -6,
+      "areas": {
+       "Planten un Blomen": 186,
+       "Außenalster": 1782
+      }
+     }
+    ]
+   },
+   {
+    "id": "hh-hbf-schanze-ab10",
+    "preset": "dauer",
+    "ok": true,
+    "seconds": 1.5,
+    "status": "Fertig in 1.5 s (9 Anfragen). 3 Varianten, beste zuerst.",
+    "requests": 9,
+    "variants": [
+     {
+      "dist": 9795,
+      "cost_per_m": 1.492,
+      "green": 0.888,
+      "street": 0.057,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.482,
+      "signals_km": 0.51,
+      "crossings_km": 0.1,
+      "turns_km": 2.25,
+      "spurs": 0,
+      "name": "Bogen nach Nordosten",
+      "dev": -205,
+      "areas": {
+       "Planten un Blomen": 1063,
+       "Sternschanzenpark": 373
+      }
+     },
+     {
+      "dist": 10028,
+      "cost_per_m": 1.75,
+      "green": 0.775,
+      "street": 0.079,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.251,
+      "signals_km": 1.5,
+      "crossings_km": 0.0,
+      "turns_km": 2.59,
+      "spurs": 0,
+      "name": "Bogen nach Norden",
+      "dev": 28,
+      "areas": {
+       "Planten un Blomen": 0,
+       "Sternschanzenpark": 498
+      }
+     },
+     {
+      "dist": 9462,
+      "cost_per_m": 2.123,
+      "green": 0.348,
+      "street": 0.477,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.186,
+      "signals_km": 0.63,
+      "crossings_km": 0.21,
+      "turns_km": 2.54,
+      "spurs": 0,
+      "name": "Bogen nach Südwesten",
+      "dev": -538,
+      "areas": {
+       "Planten un Blomen": 1619,
+       "Sternschanzenpark": 97
+      }
+     }
+    ]
+   },
+   {
+    "id": "hh-ritterstrasse-rk10",
+    "preset": "dauer",
+    "ok": false,
+    "error": "Ort nicht gefunden"
+   },
+   {
+    "id": "hh-wandsbek-uhland-ab8",
+    "preset": "dauer",
+    "ok": false,
+    "error": "Ort nicht gefunden"
+   },
+   {
+    "id": "hh-christuskirche-hoheluft-ab6",
+    "preset": "dauer",
+    "ok": false,
+    "error": "Ort nicht gefunden"
+   },
+   {
+    "id": "hh-kellinghusen-rk8",
+    "preset": "dauer",
+    "ok": false,
+    "error": "Ort nicht gefunden"
+   },
+   {
+    "id": "hh-planetarium-lang14",
+    "preset": "lang",
+    "ok": true,
+    "seconds": 1.5,
+    "status": "Fertig in 1.4 s (7 Anfragen). 3 Varianten, beste zuerst.",
+    "requests": 7,
+    "variants": [
+     {
+      "dist": 14305,
+      "cost_per_m": 2.196,
+      "green": 0.602,
+      "street": 0.224,
+      "sidewalk": 0.0,
+      "big": 0.002,
+      "route": 0.081,
+      "signals_km": 1.61,
+      "crossings_km": 0.28,
+      "turns_km": 3.01,
+      "spurs": 0,
+      "name": "Rundkurs nach Westen",
+      "dev": 305,
+      "areas": {
+       "Stadtpark": 1352,
+       "Außenalster": 372
+      }
+     },
+     {
+      "dist": 14685,
+      "cost_per_m": 2.24,
+      "green": 0.552,
+      "street": 0.347,
+      "sidewalk": 0.0,
+      "big": 0.013,
+      "route": 0.118,
+      "signals_km": 1.02,
+      "crossings_km": 0.41,
+      "turns_km": 3.47,
+      "spurs": 0,
+      "name": "Rundkurs nach Osten",
+      "dev": 685,
+      "areas": {
+       "Stadtpark": 2974,
+       "Außenalster": 0
+      }
+     },
+     {
+      "dist": 13906,
+      "cost_per_m": 2.303,
+      "green": 0.536,
+      "street": 0.387,
+      "sidewalk": 0.0,
+      "big": 0.009,
+      "route": 0.148,
+      "signals_km": 0.86,
+      "crossings_km": 0.65,
+      "turns_km": 3.67,
+      "spurs": 0,
+      "name": "Rundkurs nach Südosten",
+      "dev": -94,
+      "areas": {
+       "Stadtpark": 2354,
+       "Außenalster": 2623
+      }
+     }
+    ]
+   },
+   {
+    "id": "hh-altona-recovery5",
+    "preset": "recovery",
+    "ok": true,
+    "seconds": 0.6,
+    "status": "Fertig in 0.6 s (7 Anfragen). 3 Varianten, beste zuerst.",
+    "requests": 7,
+    "variants": [
+     {
+      "dist": 4998,
+      "cost_per_m": 2.601,
+      "green": 0.379,
+      "street": 0.354,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.039,
+      "signals_km": 1.4,
+      "crossings_km": 0.4,
+      "turns_km": 4.8,
+      "spurs": 0,
+      "name": "Rundkurs nach Südosten",
+      "dev": -2,
+      "areas": {}
+     },
+     {
+      "dist": 4685,
+      "cost_per_m": 2.619,
+      "green": 0.335,
+      "street": 0.443,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.192,
+      "signals_km": 1.07,
+      "crossings_km": 0.43,
+      "turns_km": 6.19,
+      "spurs": 0,
+      "name": "Rundkurs nach Süden",
+      "dev": -315,
+      "areas": {}
+     },
+     {
+      "dist": 5401,
+      "cost_per_m": 2.86,
+      "green": 0.31,
+      "street": 0.409,
+      "sidewalk": 0.0,
+      "big": 0.019,
+      "route": 0.0,
+      "signals_km": 1.85,
+      "crossings_km": 0.74,
+      "turns_km": 3.15,
+      "spurs": 0,
+      "name": "Rundkurs nach Osten",
+      "dev": 401,
+      "areas": {}
+     }
+    ]
+   },
+   {
+    "id": "hh-planten-intervall",
+    "preset": "intervall",
+    "ok": true,
+    "seconds": 1.1,
+    "status": "Fertig in 1.0 s (15 Anfragen). 3 Varianten, beste zuerst.",
+    "requests": 15,
+    "variants": [
+     {
+      "dist": 1064,
+      "cost_per_m": 1.359,
+      "green": 1.0,
+      "street": 0.0,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.0,
+      "signals_km": 0.0,
+      "crossings_km": 0.0,
+      "turns_km": 7.52,
+      "spurs": 0,
+      "name": "Runde nach Westen",
+      "dev": 64,
+      "areas": {
+       "Planten un Blomen": 1066
+      }
+     },
+     {
+      "dist": 959,
+      "cost_per_m": 1.532,
+      "green": 0.853,
+      "street": 0.147,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.0,
+      "signals_km": 0.0,
+      "crossings_km": 0.0,
+      "turns_km": 5.21,
+      "spurs": 0,
+      "name": "Runde nach Südosten",
+      "dev": -41,
+      "areas": {
+       "Planten un Blomen": 958
+      }
+     },
+     {
+      "dist": 1142,
+      "cost_per_m": 1.681,
+      "green": 1.0,
+      "street": 0.0,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.0,
+      "signals_km": 0.0,
+      "crossings_km": 0.0,
+      "turns_km": 9.63,
+      "spurs": 0,
+      "name": "Runde nach Nordwesten",
+      "dev": 142,
+      "areas": {
+       "Planten un Blomen": 1146
+      }
+     }
+    ]
+   },
+   {
+    "id": "hh-kellinghusen-tempo8",
+    "preset": "tempo",
+    "ok": false,
+    "error": "Ort nicht gefunden"
+   },
+   {
+    "id": "b-brandenburger-rk10",
+    "preset": "dauer",
+    "ok": true,
+    "seconds": 1.3,
+    "status": "Fertig in 1.2 s (6 Anfragen). 3 Varianten, beste zuerst.",
+    "requests": 6,
+    "variants": [
+     {
+      "dist": 10299,
+      "cost_per_m": 1.969,
+      "green": 0.599,
+      "street": 0.05,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.224,
+      "signals_km": 1.26,
+      "crossings_km": 0.19,
+      "turns_km": 3.98,
+      "spurs": 0,
+      "name": "Rundkurs nach Norden",
+      "dev": 299,
+      "areas": {
+       "Großer Tiergarten": 230
+      }
+     },
+     {
+      "dist": 9966,
+      "cost_per_m": 1.977,
+      "green": 0.631,
+      "street": 0.062,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.077,
+      "signals_km": 1.1,
+      "crossings_km": 0.5,
+      "turns_km": 3.91,
+      "spurs": 0,
+      "name": "Rundkurs nach Nordwesten",
+      "dev": -34,
+      "areas": {
+       "Großer Tiergarten": 3187
+      }
+     },
+     {
+      "dist": 9061,
+      "cost_per_m": 2.086,
+      "green": 0.572,
+      "street": 0.051,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.325,
+      "signals_km": 2.1,
+      "crossings_km": 0.0,
+      "turns_km": 2.87,
+      "spurs": 0,
+      "name": "Rundkurs nach Südosten",
+      "dev": -939,
+      "areas": {
+       "Großer Tiergarten": 743
+      }
+     }
+    ]
+   },
+   {
+    "id": "b-hbf-tempelhof-ab12",
+    "preset": "dauer",
+    "ok": true,
+    "seconds": 1.0,
+    "status": "Fertig in 1.0 s (5 Anfragen). 3 Varianten, beste zuerst.",
+    "requests": 5,
+    "variants": [
+     {
+      "dist": 12502,
+      "cost_per_m": 1.82,
+      "green": 0.752,
+      "street": 0.015,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.399,
+      "signals_km": 1.36,
+      "crossings_km": 0.08,
+      "turns_km": 2.88,
+      "spurs": 0,
+      "name": "Bogen nach Südwesten",
+      "dev": 502,
+      "areas": {
+       "Großer Tiergarten": 1308
+      }
+     },
+     {
+      "dist": 11702,
+      "cost_per_m": 1.862,
+      "green": 0.706,
+      "street": 0.056,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.226,
+      "signals_km": 1.79,
+      "crossings_km": 0.0,
+      "turns_km": 3.33,
+      "spurs": 0,
+      "name": "Bogen nach Osten",
+      "dev": -298,
+      "areas": {
+       "Großer Tiergarten": 0
+      }
+     },
+     {
+      "dist": 12179,
+      "cost_per_m": 1.88,
+      "green": 0.724,
+      "street": 0.034,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.27,
+      "signals_km": 1.4,
+      "crossings_km": 0.16,
+      "turns_km": 3.53,
+      "spurs": 0,
+      "name": "Bogen nach Nordosten",
+      "dev": 179,
+      "areas": {
+       "Großer Tiergarten": 0
+      }
+     }
+    ]
+   },
+   {
+    "id": "b-tempelhof-wettkampf10",
+    "preset": "wettkampf",
+    "ok": true,
+    "seconds": 2.3,
+    "status": "Fertig in 2.3 s (13 Anfragen). 3 Varianten, beste zuerst.",
+    "requests": 13,
+    "variants": [
+     {
+      "dist": 9999,
+      "cost_per_m": 2.104,
+      "green": 0.441,
+      "street": 0.1,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.098,
+      "signals_km": 0.6,
+      "crossings_km": 0.2,
+      "turns_km": 2.4,
+      "spurs": 0,
+      "name": "Rundkurs nach Südosten",
+      "dev": -1,
+      "areas": {}
+     },
+     {
+      "dist": 10366,
+      "cost_per_m": 2.295,
+      "green": 0.418,
+      "street": 0.046,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.012,
+      "signals_km": 0.77,
+      "crossings_km": 0.48,
+      "turns_km": 2.99,
+      "spurs": 0,
+      "name": "Rundkurs nach Norden",
+      "dev": 366,
+      "areas": {}
+     },
+     {
+      "dist": 9546,
+      "cost_per_m": 1.989,
+      "green": 0.526,
+      "street": 0.087,
+      "sidewalk": 0.0,
+      "big": 0.0,
+      "route": 0.107,
+      "signals_km": 0.42,
+      "crossings_km": 0.31,
+      "turns_km": 1.89,
+      "spurs": 0,
+      "name": "Rundkurs nach Süden",
+      "dev": -454,
+      "areas": {}
+     }
+    ]
+   }
+  ]
+ }
+}

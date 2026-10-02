@@ -1,0 +1,15 @@
+/home/runner/brouter:
+total 96
+drwxr-xr-x  5 runner runner  4096 Oct  2 13:16 .
+drwxr-x--- 15 runner runner  4096 Oct  2 13:16 ..
+drwxr-xr-x  2 runner runner  4096 Oct  2 13:16 dl
+drwxr-xr-x  3 runner runner  4096 Oct  2 13:16 release
+drwxr-xr-x  2 runner runner  4096 Oct  2 13:16 segments4
+-rw-r--r--  1 runner runner 76980 Oct  2 13:18 server.log
+
+/home/runner/brouter/segments4:
+total 300716
+drwxr-xr-x 2 runner runner      4096 Oct  2 13:16 .
+drwxr-xr-x 5 runner runner      4096 Oct  2 13:16 ..
+-rw-r--r-- 1 runner runner 125238850 Oct  2 13:16 E10_N50.rd5
+-rw-r--r-- 1 runner runner 182677370 Oct  2 13:16 E5_N50.rd5
