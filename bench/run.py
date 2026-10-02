@@ -126,25 +126,52 @@ def evaluate(feature):
 
 
 # ---------- Orte ----------
-def geocode(places, name, city):
+AREA_CATS = {"leisure", "landuse", "natural", "waterway", "water", "boundary"}
+
+
+def geocode(places, name, city, area=False):
     key = f"{name}, {city}"
     if key in places:
         return places[key]
-    q = urllib.parse.urlencode({"q": key, "format": "jsonv2", "limit": 1, "countrycodes": "de"})
+    q = urllib.parse.urlencode({"q": key, "format": "jsonv2", "limit": 5, "countrycodes": "de"})
     req = urllib.request.Request("https://nominatim.openstreetmap.org/search?" + q, headers={"User-Agent": UA})
     time.sleep(1.1)
     res = json.load(urllib.request.urlopen(req, timeout=30))
+    if area:
+        res = [r for r in res if r.get("category") in AREA_CATS] or res
     if not res:
         places[key] = None
         return None
     r = res[0]
     bb = [float(x) for x in r["boundingbox"]]  # süd, nord, west, ost
-    places[key] = {"lat": float(r["lat"]), "lon": float(r["lon"]), "box": bb, "label": r.get("display_name", "")[:80]}
+    places[key] = {"lat": float(r["lat"]), "lon": float(r["lon"]), "box": bb, "label": r.get("display_name", "")[:80],
+                   "category": r.get("category", "")}
     return places[key]
 
 
+# ---------- Nachmessen mit neutralem Profil ----------
+def upload_messprofil(brouter):
+    text = open(os.path.join(HERE, "messprofil.brf")).read()
+    req = urllib.request.Request(brouter + "/brouter/profile", data=text.encode(), headers={"Content-Type": "text/plain"})
+    return json.load(urllib.request.urlopen(req, timeout=60))["profileid"]
+
+
+def remeasure(brouter, pid, coords):
+    """Fährt die Route über Stützpunkte im Abstand von ~30 m (plus Knickpunkte) nach und liefert das Feature."""
+    pts = [coords[0]]
+    for i in range(1, len(coords) - 1):
+        a, b, c = pts[-1], coords[i], coords[i + 1]
+        d = abs(bearing(a, b) - bearing(b, c)) % 360
+        if hav(a, b) >= 30 or (min(d, 360 - d) > 25 and hav(a, b) >= 8):
+            pts.append(b)
+    pts.append(coords[-1])
+    q = "lonlats=" + "%7C".join(f"{p[0]:.6f},{p[1]:.6f}" for p in pts) + f"&profile={pid}&alternativeidx=0&format=geojson"
+    with urllib.request.urlopen(brouter + "/brouter?" + q, timeout=120) as r:  # 1.7.10 kennt kein POST-Routing
+        return json.loads(r.read().decode())["features"][0]
+
+
 # ---------- Lauf ----------
-def run_app(pw, app_url, brouter, cases, places):
+def run_app(pw, app_url, brouter, cases, places, mess_pid):
     browser = pw.chromium.launch()
     ctx = browser.new_context(viewport={"width": 390, "height": 844}, locale="de-DE")
     ctx.route(re.compile(r"https://.*(tile\.openstreetmap|basemaps\.cartocdn).*"), lambda r: r.abort())
@@ -202,12 +229,20 @@ def run_app(pw, app_url, brouter, cases, places):
             f = bodies.get((round(v["dist"]), round(v["cost"])))
             if not f:
                 continue
-            m = evaluate(f)
+            try:
+                g = remeasure(brouter, mess_pid, f["geometry"]["coordinates"])
+            except Exception as e:  # noqa: BLE001
+                print(f"    Nachmessen fehlgeschlagen: {e}", flush=True)
+                continue
+            m = evaluate(g)
+            m["dist"] = round(float(f["properties"]["track-length"]))
+            m["cost_per_m"] = round(float(f["properties"]["cost"]) / max(m["dist"], 1), 3)
+            m["mess_abw"] = round(float(g["properties"]["track-length"]) / max(m["dist"], 1) - 1, 3)
             m["name"] = v["name"]
             m["dev"] = round(m["dist"] - target)
             m["areas"] = {}
             for a in c.get("expect", []):
-                pl = geocode(places, a, c["city"])
+                pl = geocode(places, a, c["city"], area=True)
                 if pl:
                     m["areas"][a] = round(length_in_box(m["coords"], pl["box"]))
             del m["coords"]
@@ -223,7 +258,7 @@ def summarize(results, cases):
     by_id = {c["id"]: c for c in cases}
     agg = {"cases": 0, "ok": 0, "green": 0.0, "street": 0.0, "sidewalk": 0.0, "signals_km": 0.0, "crossings_km": 0.0,
            "turns_km": 0.0, "spurs": 0, "in_band": 0, "area_hits": 0, "area_total": 0, "requests": 0, "seconds": 0.0,
-           "best_green": 0.0}
+           "best_green": 0.0, "mess_max": 0.0}
     for r in results:
         agg["cases"] += 1
         if not r.get("ok"):
@@ -234,6 +269,7 @@ def summarize(results, cases):
             agg[k] += v[k]
         agg["best_green"] += max(x["green"] for x in r["variants"])
         agg["spurs"] += sum(x["spurs"] for x in r["variants"])
+        agg["mess_max"] = max(agg["mess_max"], max(abs(x.get("mess_abw", 0)) for x in r["variants"]))
         target = c["lap"] if c.get("lap") else c["km"] * 1000
         band = target * 0.15 if c["preset"] == "intervall" else (target * 0.02 if c["preset"] == "wettkampf" else max(500, target * 0.1))
         agg["in_band"] += int(any(abs(x["dev"]) <= band for x in r["variants"]))
@@ -261,6 +297,7 @@ def report(all_results, cases, out_dir):
             ("Querungen ohne Ampel pro km", lambda s: s["crossings_km"]), ("Abbiegungen pro km", lambda s: s["turns_km"]),
             ("Stichwege (alle Varianten)", lambda s: s["spurs"]), ("Länge im Bereich", lambda s: f"{s['in_band']}/{s['ok']}"),
             ("Erwartete Grünflächen genutzt", lambda s: f"{s['area_hits']}/{s['area_total']}"),
+            ("Nachmessung: max. Längenabweichung", lambda s: f"{s['mess_max'] * 100:.1f} %"),
             ("Anfragen pro Fall", lambda s: s["requests"]), ("Sekunden pro Fall", lambda s: s["seconds"])]
     for label, fn in rows:
         lines.append(f"| {label} | " + " | ".join(str(fn(sums[n])) for n in names) + " |")
@@ -303,11 +340,12 @@ def main():
         cases = [c for c in cases if a.only in c["id"]]
     places = json.load(open(a.places)) if os.path.exists(a.places) else {}
     all_results = {}
+    mess_pid = upload_messprofil(a.brouter)
     with sync_playwright() as pw:
         for spec in a.app:
             name, url = spec.split("=", 1)
             print(f"== {name}: {url}", flush=True)
-            all_results[name] = run_app(pw, url, a.brouter, cases, places)
+            all_results[name] = run_app(pw, url, a.brouter, cases, places, mess_pid)
     os.makedirs(a.out, exist_ok=True)
     with open(os.path.join(a.out, "places.json"), "w") as f:
         json.dump(places, f, ensure_ascii=False, indent=1, sort_keys=True)

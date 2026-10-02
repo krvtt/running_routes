@@ -1,0 +1,22 @@
+# Messprofil fuer den Benchmark: faehrt eine vorgegebene Route ueber dichte Stuetzpunkte nach
+# und gibt alle Weg-Merkmale aus (processUnusedTags), unabhaengig vom Profil der getesteten Version.
+
+---context:global
+
+assign validForFoot = true
+assign processUnusedTags = true
+assign waypointCatchingRange = 30
+assign correctMisplacedViaPoints = false
+
+---context:way
+
+assign turncost = 0
+assign initialcost = 0
+assign costfactor = if highway= then 100000 else 1
+
+---context:node
+
+# Knotenmerkmale referenzieren, damit sie in der Ausgabe erscheinen
+assign initialcost =
+       if or highway=traffic_signals or crossing=traffic_signals|zebra|marked estimated_crossing_class=1 then 0
+       else 0
