@@ -1,0 +1,258 @@
+"""End-to-End-Test der App im Headless-Chromium (Handy-Viewport).
+
+Aufruf (im Repo-Ordner):
+    python3 -m http.server 8765 &
+    python3 tests/e2e.py                                   # BRouter simuliert
+    python3 tests/e2e.py --brouter http://localhost:17777 \\
+        --center 8.7120,50.0020 --scale 0.25               # echter BRouter-Server
+
+Adresssuche (Nominatim) und Kartenkacheln werden immer simuliert. Mit --brouter
+gehen Profil-Upload und alle Routing-Anfragen an den angegebenen Server; --center
+muss dann in dessen Kartendaten liegen, --scale verkleinert die Testlängen
+passend zur Größe des Datenausschnitts.
+
+Benötigt: pip install playwright (Chromium muss installiert sein).
+Rückgabewert 0 = alle Prüfungen bestanden.
+"""
+import argparse
+import base64
+import json
+import math
+import re
+import sys
+import tempfile
+from urllib.parse import parse_qs, unquote, urlparse
+
+from playwright.sync_api import sync_playwright
+
+PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")
+CORS = {"Access-Control-Allow-Origin": "*"}
+
+
+def hav(a, b):
+    r = math.pi / 180
+    s = math.sin((b[1] - a[1]) * r / 2) ** 2 + math.cos(a[1] * r) * math.cos(b[1] * r) * math.sin((b[0] - a[0]) * r / 2) ** 2
+    return 2 * 6371008.8 * math.asin(min(1, math.sqrt(s)))
+
+
+def offset(p, dx, dy):
+    """Punkt p (lon, lat) um dx/dy Meter verschieben."""
+    return (p[0] + dx / (111320 * math.cos(math.radians(p[1]))), p[1] + dy / 111320)
+
+
+# ---------- Simulierter BRouter ----------
+WAYS = [
+    ("highway=path surface=compacted estimated_forest_class=5", 1280),
+    ("highway=residential surface=asphalt estimated_town_class=5", 2200),
+    ("highway=footway surface=asphalt estimated_river_class=6 route_hiking_lwn=yes", 1410),
+    ("highway=secondary surface=asphalt estimated_noise_class=5", 3800),
+]
+NODES = ["", "highway=traffic_signals", "", "estimated_crossing_class=4", "crossing=zebra"]
+HEADER = ["Longitude", "Latitude", "Elevation", "Distance", "CostPerKm", "ElevCost", "TurnCost",
+          "NodeCost", "InitialCost", "WayTags", "NodeTags", "Time", "Energy"]
+
+
+def mock_route(wps, seed):
+    """Zickzack-Linie durch alle Wegpunkte (Umwegfaktor ~1,25) im BRouter-GeoJSON-Format."""
+    coords, flip = [], 1
+    for p, q in zip(wps, wps[1:]):
+        n = max(1, int(hav(p, q) // 50))
+        for i in range(n):
+            a = (p[0] + (q[0] - p[0]) * i / n, p[1] + (q[1] - p[1]) * i / n)
+            coords.append([a[0], a[1], 10.0])
+            m = (p[0] + (q[0] - p[0]) * (i + .5) / n, p[1] + (q[1] - p[1]) * (i + .5) / n)
+            dx, dy = q[0] - p[0], q[1] - p[1]
+            norm = math.hypot(dx, dy) or 1
+            o = offset(m, -dy / norm * 19 * flip, dx / norm * 19 * flip)
+            coords.append([o[0], o[1], 11.0])
+            flip = -flip
+    coords.append([wps[-1][0], wps[-1][1], 10.0])
+    msgs, cost, last, acc, seg = [HEADER], 0, 0, 0, 0
+    for i in range(1, len(coords)):
+        acc += hav(coords[i - 1], coords[i])
+        if acc - last >= 300 or i == len(coords) - 1:
+            d = acc - last
+            last = acc
+            tags, cf = WAYS[(seg + seed) % len(WAYS)]
+            node = NODES[(seg + seed) % len(NODES)] if i < len(coords) - 1 else ""
+            cost += d * cf / 1000 + (100 if node else 0)
+            msgs.append([str(round(coords[i][0] * 1e6)), str(round(coords[i][1] * 1e6)), "10", str(int(d)), str(cf),
+                         "0", "0", "0", "0", tags, node, "0", "0"])
+            seg += 1
+    return {"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {
+        "track-length": str(int(acc)), "filtered ascend": "3", "cost": str(int(cost)), "messages": msgs},
+        "geometry": {"type": "LineString", "coordinates": coords}}]}
+
+
+class MockBRouter:
+    def __init__(self):
+        self.calls = 0
+        self.fail = False
+
+    def __call__(self, route):
+        url = route.request.url
+        if "/brouter/profile" in url:
+            assert "---context:way" in (route.request.post_data or ""), "Profiltext fehlt im Upload"
+            return route.fulfill(status=200, content_type="application/json", headers=CORS, body='{"profileid": "custom_1"}')
+        self.calls += 1
+        q = parse_qs(urlparse(url).query)
+        assert "engineMode" not in q, "App darf den Server-Rundkurs-Modus nicht benutzen"
+        assert any(k.startswith("profile:") for k in q), "Preset-Parameter fehlen"
+        if self.fail:
+            return route.fulfill(status=500, content_type="text/plain", headers=CORS,
+                                 body="operation killed by thread-priority-watchdog after 60 seconds")
+        pts = [tuple(map(float, p.split(",")[:2])) for p in unquote(q["lonlats"][0]).split("|")]
+        body = mock_route(pts, len(pts) + int(q.get("alternativeidx", ["0"])[0]))
+        route.fulfill(status=200, content_type="application/json", headers=CORS, body=json.dumps(body))
+
+
+# ---------- Test ----------
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--app", default="http://localhost:8765/")
+    ap.add_argument("--brouter", help="echter BRouter-Server statt Simulation")
+    ap.add_argument("--center", default="9.9930,53.5600", help="lon,lat für Start/Ziel")
+    ap.add_argument("--scale", type=float, default=1.0, help="Faktor für Testlängen")
+    ap.add_argument("--shots", help="Ordner für Screenshots")
+    a = ap.parse_args()
+    center = tuple(map(float, a.center.split(",")))
+    places = {"start": offset(center, 700 * a.scale, -150 * a.scale), "ziel": offset(center, -700 * a.scale, 150 * a.scale)}
+    km = lambda x: str(round(x * a.scale, 1))  # noqa: E731
+    checks, errors = [], []
+
+    def check(name, ok, info=""):
+        checks.append((name, bool(ok), info))
+
+    def geocoder(route):
+        q = parse_qs(urlparse(route.request.url).query)["q"][0].lower()
+        p = places.get(q, center)
+        body = [{"lat": str(p[1]), "lon": str(p[0]), "display_name": q.title() + ", Teststadt"}]
+        route.fulfill(status=200, content_type="application/json", headers=CORS, body=json.dumps(body))
+
+    mock = MockBRouter()
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2, locale="de-DE",
+                                  timezone_id="Europe/Berlin", accept_downloads=True)
+        ctx.route("https://nominatim.openstreetmap.org/**", geocoder)
+        ctx.route(re.compile(r"https://.*(tile\.openstreetmap|basemaps\.cartocdn).*"),
+                  lambda r: r.fulfill(status=200, content_type="image/png", body=PNG))
+        if not a.brouter:
+            ctx.route("https://brouter.de/**", mock)
+        page = ctx.new_page()
+        page.on("pageerror", lambda e: errors.append(str(e)))
+        page.on("console", lambda m: errors.append(m.text) if m.type == "error" and "status of 5" not in m.text else None)
+        page.goto(a.app)
+        page.wait_for_selector("#presets button")
+        status = lambda: page.inner_text("#status")  # noqa: E731
+
+        if a.brouter:
+            page.click("#setBtn")
+            page.fill("#serverInput", a.brouter)
+            page.press("#serverInput", "Tab")
+            page.click("[data-close=setPanel]")
+
+        def pick(which, query, fav):
+            page.fill(f"#{which}Input", query)
+            page.click(f"form[data-search={which}] button")
+            page.click(f"#{which}Results button >> nth=0")
+            page.click(f"[data-fav={which}]")
+            page.fill(f"#{which}FavName", fav)
+            page.click(f"form[data-favform={which}] button")
+
+        pick("start", "Start", "Arbeit")
+        pick("end", "Ziel", "Zuhause")
+
+        def run(label, tol):
+            page.click("#goBtn")
+            page.wait_for_function("!document.getElementById('goBtn').disabled && document.getElementById('status').className",
+                                   timeout=120000)
+            vs = page.evaluate("window.__laufrouten.state.variants.map(v => ({name: v.name, km: +(v.dist/1000).toFixed(2),"
+                               " err: +(v.err*100).toFixed(1), q: v.q, turns: v.turns, signals: v.m.signals.length}))")
+            ok = bool(vs) and page.evaluate("document.getElementById('status').className") != "err"
+            best = min((abs(v["err"]) for v in vs), default=999)
+            check(label, ok and best <= tol * 100 + 0.05, f"{status()} | beste Abweichung {best} % | {len(vs)} Varianten")
+            return vs
+
+        # A→B, Länge über direktem Weg: Bögen mit Nachregelung
+        page.fill("#kmInput", km(6))
+        run("A→B Dauerlauf mit Umweg", 0.10)
+        with page.expect_download() as dl:
+            page.click("#gpxBtn")
+        gpx = open(dl.value.path()).read()
+        check("GPX-Export", gpx.startswith("<?xml") and gpx.count("<trkpt") > 10, dl.value.suggested_filename)
+        if a.shots:
+            page.screenshot(path=f"{a.shots}/ab.png", full_page=True)
+
+        # Rundkurse (Stützpunkte clientseitig)
+        page.click("#modeRT")
+        page.click("[data-preset=wettkampf]")
+        page.fill("#kmInput", km(10))
+        run("Rundkurs Wettkampf-Simulation", 0.05 if a.brouter else 0.02)
+        page.click("[data-preset=lang]")
+        page.fill("#kmInput", km(25))
+        run("Rundkurs Langer Lauf", 0.08)
+        page.click("[data-preset=intervall]")
+        page.fill("#lapInput", str(int(max(600, 1000 * a.scale))))
+        run("Intervall-Runde", 0.15)
+        page.click("[data-preset=dauer]")
+        page.check("#stridesChk")
+        page.fill("#kmInput", km(8))
+        run("Rundkurs Dauerlauf mit Steigerungen", 0.10)
+        names_before = page.evaluate("window.__laufrouten.state.variants.map(v => v.name).join()")
+        page.click("#againBtn")
+        page.wait_for_function("!document.getElementById('goBtn').disabled", timeout=120000)
+        check("Andere Varianten", page.evaluate("window.__laufrouten.state.variants.map(v => v.name).join()") != names_before)
+        if a.shots:
+            page.screenshot(path=f"{a.shots}/rundkurs.png", full_page=True)
+
+        if not a.brouter:
+            mock.fail = True
+            page.click("#goBtn")
+            page.wait_for_function("document.getElementById('status').className === 'err'", timeout=30000)
+            check("Fehlermeldung bei überlastetem Server", "ausgelastet" in status(), status())
+            mock.fail = False
+
+        # Gedächtnis nach Neuladen
+        page.reload()
+        page.wait_for_selector("#presets button")
+        check("Favoriten nach Neuladen", page.locator("[data-favs=start] button").all_inner_texts() == ["Arbeit", "Zuhause"])
+        check("Startpunkt nach Neuladen", page.inner_text("#startPt") == "Arbeit", page.inner_text("#startPt"))
+        check("Einstellungen nach Neuladen", page.evaluate("window.__laufrouten.settings.mode") == "rt" and page.is_checked("#stridesChk"))
+        page.click("#histBtn")
+        page.wait_for_selector("[data-hload]")
+        n_hist = page.locator("[data-hload]").count()
+        page.click("[data-hload] >> nth=0")
+        page.wait_for_selector("#resCard:not([hidden])")
+        check("Verlauf", n_hist >= 5, f"{n_hist} Einträge")
+
+        # Backup
+        page.click("#setBtn")
+        with page.expect_download() as dl2:
+            page.click("#exportBtn")
+        backup = json.load(open(dl2.value.path()))
+        page.set_input_files("#importFile", dl2.value.path())
+        page.wait_for_function("document.getElementById('status').textContent.startsWith('Importiert')")
+        check("Export/Import", len(backup["favorites"]) == 2 and len(backup["history"]) >= 5, status())
+        page.click("[data-close=setPanel]")
+
+        # Dunkelmodus
+        page.emulate_media(color_scheme="dark")
+        page.click("#modeAB")
+        page.fill("#kmInput", km(6))
+        run("A→B im Dunkelmodus", 0.10)
+        if a.shots:
+            page.screenshot(path=f"{a.shots}/dunkel.png")
+        browser.close()
+
+    check("Keine JavaScript-Fehler", not errors, "; ".join(errors[:3]))
+    width = max(len(c[0]) for c in checks)
+    for name, ok, info in checks:
+        print(f"{'OK  ' if ok else 'FAIL'} {name.ljust(width)}  {info}")
+    failed = [c for c in checks if not c[1]]
+    print(f"\n{len(checks) - len(failed)}/{len(checks)} bestanden")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
