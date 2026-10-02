@@ -10,8 +10,8 @@ on:
   workflow_dispatch:
     inputs:
       baseline:
-        description: "Vergleichsversion (Commit oder Tag)"
-        default: "3aa0e38"
+        description: "Vergleichsversionen (Commits oder Tags, durch Leerzeichen getrennt)"
+        default: "3aa0e38 17956d0"
       only:
         description: "Nur Fälle, deren id diesen Text enthält (leer = alle)"
         default: ""
@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BASELINE: ${{ inputs.baseline || '3aa0e38' }}
+  BASELINES: ${{ inputs.baseline || '3aa0e38 17956d0' }}
   BROUTER_HOME: /home/runner/brouter
 
 jobs:
@@ -75,16 +75,21 @@ jobs:
 
       - name: App-Versionen ausliefern
         run: |
-          git worktree add --detach ../baseline "$BASELINE"
           (python -m http.server 8765 > /dev/null 2>&1 &)
-          (cd ../baseline && python -m http.server 8766 > /dev/null 2>&1 &)
+          port=8766
+          for ref in $BASELINES; do
+            git worktree add --detach "../v-$ref" "$ref"
+            (cd "../v-$ref" && python -m http.server $port > /dev/null 2>&1 &)
+            echo "--app=$ref=http://localhost:$port/" >> ../apps.txt
+            port=$((port + 1))
+          done
           sleep 2
 
       - name: Benchmark
         run: |
           ONLY="${{ inputs.only }}"
-          python bench/run.py --brouter http://localhost:17777 \
-            --app neu=http://localhost:8765/ --app "alt ($BASELINE)=http://localhost:8766/" \
+          mapfile -t APPS < ../apps.txt
+          python bench/run.py --brouter http://localhost:17777 --app neu=http://localhost:8765/ "${APPS[@]}" \
             ${ONLY:+--only "$ONLY"} --out bench-out
 
       - name: Protokolle sammeln

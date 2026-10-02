@@ -223,22 +223,28 @@ def run_app(pw, app_url, brouter, cases, places, mess_pid):
             except Exception:  # noqa: BLE001
                 pass
         target = c["lap"] if c.get("lap") else c["km"] * 1000
-        variants = page.evaluate("window.__laufrouten.state.variants.map(v => ({name: v.name, dist: v.dist, cost: v.cost}))")
+        variants = page.evaluate("window.__laufrouten.state.variants.map(v => ({name: v.name, dist: v.dist, cost: v.cost, green: !!v.green}))")
         res["variants"] = []
         for v in variants:
             f = bodies.get((round(v["dist"]), round(v["cost"])))
             if not f:
                 continue
+            orig = evaluate(f)
             try:
                 g = remeasure(brouter, mess_pid, f["geometry"]["coordinates"])
+                abw = float(g["properties"]["track-length"]) / max(orig["dist"], 1) - 1
             except Exception as e:  # noqa: BLE001
                 print(f"    Nachmessen fehlgeschlagen: {e}", flush=True)
-                continue
-            m = evaluate(g)
-            m["dist"] = round(float(f["properties"]["track-length"]))
-            m["cost_per_m"] = round(float(f["properties"]["cost"]) / max(m["dist"], 1), 3)
-            m["mess_abw"] = round(float(g["properties"]["track-length"]) / max(m["dist"], 1) - 1, 3)
+                g, abw = None, None
+            # Merkmale aus der Nachmessung, wenn sie die Route trifft; sonst aus der Originalantwort
+            m = evaluate(g) if g is not None and abs(abw) <= 0.05 else dict(orig)
+            m["mess"] = "neutral" if g is not None and abs(abw) <= 0.05 else "original"
+            m["mess_abw"] = round(abw, 3) if abw is not None else None
+            for k in ("dist", "cost_per_m", "turns_km", "spurs"):  # Geometrie immer von der Originalroute
+                m[k] = orig[k]
+            m["coords"] = orig["coords"]
             m["name"] = v["name"]
+            m["src"] = "grün" if v.get("green") else "geo"
             m["dev"] = round(m["dist"] - target)
             m["areas"] = {}
             for a in c.get("expect", []):
@@ -258,7 +264,7 @@ def summarize(results, cases):
     by_id = {c["id"]: c for c in cases}
     agg = {"cases": 0, "ok": 0, "green": 0.0, "street": 0.0, "sidewalk": 0.0, "signals_km": 0.0, "crossings_km": 0.0,
            "turns_km": 0.0, "spurs": 0, "in_band": 0, "area_hits": 0, "area_total": 0, "requests": 0, "seconds": 0.0,
-           "best_green": 0.0, "mess_max": 0.0}
+           "best_green": 0.0, "mess_max": 0.0, "green_first": 0, "mess_orig": 0}
     for r in results:
         agg["cases"] += 1
         if not r.get("ok"):
@@ -269,7 +275,8 @@ def summarize(results, cases):
             agg[k] += v[k]
         agg["best_green"] += max(x["green"] for x in r["variants"])
         agg["spurs"] += sum(x["spurs"] for x in r["variants"])
-        agg["mess_max"] = max(agg["mess_max"], max(abs(x.get("mess_abw", 0)) for x in r["variants"]))
+        agg["green_first"] += int(v.get("src") == "grün")
+        agg["mess_orig"] += sum(1 for x in r["variants"] if x.get("mess") == "original")
         target = c["lap"] if c.get("lap") else c["km"] * 1000
         band = target * 0.15 if c["preset"] == "intervall" else (target * 0.02 if c["preset"] == "wettkampf" else max(500, target * 0.1))
         agg["in_band"] += int(any(abs(x["dev"]) <= band for x in r["variants"]))
@@ -297,7 +304,8 @@ def report(all_results, cases, out_dir):
             ("Querungen ohne Ampel pro km", lambda s: s["crossings_km"]), ("Abbiegungen pro km", lambda s: s["turns_km"]),
             ("Stichwege (alle Varianten)", lambda s: s["spurs"]), ("Länge im Bereich", lambda s: f"{s['in_band']}/{s['ok']}"),
             ("Erwartete Grünflächen genutzt", lambda s: f"{s['area_hits']}/{s['area_total']}"),
-            ("Nachmessung: max. Längenabweichung", lambda s: f"{s['mess_max'] * 100:.1f} %"),
+            ("Empfehlung über Grünflächen-Anker", lambda s: f"{s['green_first']}/{s['ok']}"),
+            ("Varianten ohne neutrale Nachmessung", lambda s: s["mess_orig"]),
             ("Anfragen pro Fall", lambda s: s["requests"]), ("Sekunden pro Fall", lambda s: s["seconds"])]
     for label, fn in rows:
         lines.append(f"| {label} | " + " | ".join(str(fn(sums[n])) for n in names) + " |")
@@ -306,17 +314,17 @@ def report(all_results, cases, out_dir):
         lines.append(f"### {c['id']} ({c['preset']}, {'A→B' if c['mode'] == 'ab' else 'Rundkurs'}, "
                      f"{c.get('lap', '') or c.get('km')}{' m' if c.get('lap') else ' km'})")
         lines.append("")
-        lines.append("| Version | Variante | Länge | Abw. | Grün | Straße | Gehweg | Ampeln/km | ohne Ampel/km | Abb./km | Grünflächen (m) |")
-        lines.append("|---|---|---|---|---|---|---|---|---|---|---|")
+        lines.append("| Version | Variante | Länge | Abw. | Grün | Straße | Gehweg | Ampeln/km | ohne Ampel/km | Abb./km | Grünflächen (m) | Messung |")
+        lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
         for n in names:
             r = next((x for x in all_results[n] if x["id"] == c["id"]), None)
             if not r or not r.get("ok"):
-                lines.append(f"| {n} | Fehler: {(r or {}).get('error') or (r or {}).get('status', '?')} | | | | | | | | | |")
+                lines.append(f"| {n} | Fehler: {(r or {}).get('error') or (r or {}).get('status', '?')} | | | | | | | | | | |")
                 continue
             for v in r["variants"]:
                 areas = ", ".join(f"{k}: {val}" for k, val in v["areas"].items()) or "–"
                 lines.append(f"| {n} | {v['name']} | {v['dist']} | {v['dev']:+d} | {pct(v['green'])} | {pct(v['street'])} | "
-                             f"{pct(v['sidewalk'])} | {v['signals_km']} | {v['crossings_km']} | {v['turns_km']} | {areas} |")
+                             f"{pct(v['sidewalk'])} | {v['signals_km']} | {v['crossings_km']} | {v['turns_km']} | {areas} | {v.get('mess', '')} |")
         lines.append("")
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "report.md"), "w") as f:

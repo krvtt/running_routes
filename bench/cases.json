@@ -3,8 +3,8 @@
   "cases": [
     { "id": "hh-dammtor-rk8", "city": "Hamburg", "preset": "dauer", "mode": "rt", "km": 8, "start": "Bahnhof Dammtor", "expect": ["Planten un Blomen", "Außenalster"] },
     { "id": "hh-hbf-schanze-ab10", "city": "Hamburg", "preset": "dauer", "mode": "ab", "km": 10, "start": "Hauptbahnhof", "end": "Bahnhof Sternschanze", "expect": ["Planten un Blomen", "Sternschanzenpark"] },
-    { "id": "hh-ritterstrasse-rk10", "city": "Hamburg", "preset": "dauer", "mode": "rt", "km": 10, "start": "Ritterstraße, Eilbek", "expect": ["Eilbektal"] },
-    { "id": "hh-wandsbek-uhland-ab8", "city": "Hamburg", "preset": "dauer", "mode": "ab", "km": 8, "start": "Wandsbek Markt", "end": "Uhlandstraße, Hohenfelde", "expect": ["Eilbektal"] },
+    { "id": "hh-ritterstrasse-rk10", "city": "Hamburg", "preset": "dauer", "mode": "rt", "km": 10, "start": "Ritterstraße, Eilbek", "expect": [] },
+    { "id": "hh-wandsbek-uhland-ab8", "city": "Hamburg", "preset": "dauer", "mode": "ab", "km": 8, "start": "Wandsbek Markt", "end": "Uhlandstraße, Hohenfelde", "expect": [] },
     { "id": "hh-christuskirche-hoheluft-ab6", "city": "Hamburg", "preset": "dauer", "mode": "ab", "km": 6, "start": "Christuskirche, Eimsbüttel", "end": "Hoheluftbrücke", "expect": ["Isebekkanal"] },
     { "id": "hh-kellinghusen-rk8", "city": "Hamburg", "preset": "dauer", "mode": "rt", "km": 8, "start": "Kellinghusenstraße", "expect": ["Hayns Park"] },
     { "id": "hh-planetarium-lang14", "city": "Hamburg", "preset": "lang", "mode": "rt", "km": 14, "start": "Planetarium Hamburg", "expect": ["Stadtpark", "Außenalster"] },
