@@ -23,7 +23,7 @@ Das Routing übernimmt [BRouter](https://github.com/abrensch/brouter) auf Basis 
 
 Varianten entstehen in drei Schritten:
 
-1. **Grünflächen:** Die App fragt Parks, Wälder, Kleingärten, Wiesen, Gewässer und Kanäle im Umkreis bei OpenStreetMap ab (Overpass, je Kachel von etwa 5 × 5 km, 30 Tage im Gerät gespeichert). Daraus entstehen Anker: Punkte in Grünflächen, an Ufern und entlang von Kanälen. Kandidaten führen über ein bis drei Anker, deren geschätzte Länge zur Wunschlänge passt.
+1. **Grünflächen:** Aus Parks, Wäldern, Kleingärten, Wiesen, Gewässern und Kanälen entstehen Anker: Punkte in Grünflächen ab 1 ha, Uferpunkte an Gewässern ab 2 ha und Punkte entlang von Flüssen und Kanälen. Für die Regionen in `data/regions.json` (derzeit Hamburg und Berlin) sind sie vorberechnet und liegen als kleine Kacheln unter `data/green/`; ein Workflow erneuert sie monatlich aus den OpenStreetMap-Extrakten der Geofabrik. Anderswo fragt die App die Grünflächen bei der Overpass-API ab und speichert sie 30 Tage im Gerät. Kandidaten führen über ein bis drei Anker, deren geschätzte Länge zur Wunschlänge passt.
 2. **Geometrische Kandidaten:** Zusätzlich Rundkurse in mehreren Richtungen (Stützpunkte im Fächer um den Start) bzw. Bögen links und rechts der Luftlinie. Sie sichern die Länge ab und dienen als Rückfall, wenn keine Grünflächen-Daten verfügbar sind. Ist der direkte Weg schon lang genug, liefert BRouter Alternativrouten.
 3. **Auswahl:** Die günstigsten Kandidaten außerhalb des Längenbereichs werden nachgeregelt. Angezeigt werden drei möglichst verschiedene Varianten; zuerst die im Längenbereich, darunter die mit den geringsten Routing-Kosten pro Meter. Grün-Kandidaten setzen sich also nur durch, wenn sie laut Profil wirklich grüner und ruhiger sind.
 
@@ -38,7 +38,7 @@ Das Profil unterscheidet Wege im Grünen, sonstige Wege, Gehwege an Straßen (`f
 | Favoriten, Verlauf, Einstellungen | nur im Browser des Geräts (IndexedDB) |
 | Start-, Ziel- und Zwischenpunkte | Routing-Server (Standard: brouter.de) |
 | Suchbegriffe der Adresssuche | Nominatim (OpenStreetMap) |
-| Kartenausschnitt für Grünflächen | Overpass-API (OpenStreetMap), einmal je Gebiet und Monat |
+| Kartenausschnitt für Grünflächen | Overpass-API (OpenStreetMap), nur außerhalb der vorberechneten Regionen, einmal je Gebiet und Monat |
 | Kartenausschnitt | Kachelserver von OpenStreetMap |
 
 Die Daten hängen an der Adresse der App. Für einen Gerätewechsel: Einstellungen → Exportieren bzw. Importieren.
@@ -70,7 +70,8 @@ Der Test braucht [Playwright für Python](https://playwright.dev/python/) mit Ch
 | `vendor/leaflet/` | Leaflet 1.9.4 |
 | `tests/e2e.py` | End-to-End-Test |
 | `bench/` | Benchmark: Fälle, Runner, Messprofil, BRouter-Setup |
+| `tools/green_anchors.py`, `data/` | Grünflächen-Anker aus OpenStreetMap-Extrakten (ohne externe Abhängigkeiten), Regionenliste, Kacheln |
 
 ## Lizenz und Quellen
 
-Code: [MIT](LICENSE). Karten- und Wegdaten © [OpenStreetMap-Mitwirkende](https://www.openstreetmap.org/copyright) (ODbL). Routing: [BRouter](https://github.com/abrensch/brouter) (MIT). Karte: [Leaflet](https://leafletjs.com) (BSD-2-Clause, siehe `vendor/leaflet/LICENSE`). Adresssuche: [Nominatim](https://nominatim.org). Grünflächen: [Overpass-API](https://overpass-api.de).
+Code: [MIT](LICENSE). Karten- und Wegdaten © [OpenStreetMap-Mitwirkende](https://www.openstreetmap.org/copyright) (ODbL). Routing: [BRouter](https://github.com/abrensch/brouter) (MIT). Karte: [Leaflet](https://leafletjs.com) (BSD-2-Clause, siehe `vendor/leaflet/LICENSE`). Adresssuche: [Nominatim](https://nominatim.org). Grünflächen: OpenStreetMap-Extrakte der [Geofabrik](https://download.geofabrik.de) bzw. [Overpass-API](https://overpass-api.de).

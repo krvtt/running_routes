@@ -4,7 +4,7 @@
 'use strict';
 if (!window.L) { document.getElementById('status').textContent = 'Kartenbibliothek nicht geladen – Seite neu laden.'; return; }
 
-const APP_VERSION = '2.5.0';
+const APP_VERSION = '2.6.0';
 const PROFILE_URL = 'profiles/laufen.brf';
 const DEFAULT_SERVER = 'https://brouter.de';
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
@@ -20,16 +20,16 @@ const COLORS = ['--v1', '--v2', '--v3', '--v4'];
 // ---------- Trainingsarten ----------
 // paceOff: Sekunden relativ zum normalen Dauerlauf-Tempo. p: Profilparameter für BRouter (siehe Profil).
 const PRESETS = {
-  dauer: { name: 'Lockerer Dauerlauf', km: 8, paceOff: 0, tol: 0.10, points: 5,
+  dauer: { name: 'Lockerer Dauerlauf', km: 8, paceOff: 0, tol: 0.05, points: 5,
     hint: 'Grundlage, der Großteil deiner Kilometer. Viel Grün; eine Ampel ist okay, wenn sie Park oder Ufer erschließt.',
     p: { green_pref: 0.7, road_base: 1.8, big_road: 1.0, noise_weight: 0.4, route_bonus: 0.15, signal_cost: 100, crossing_unit: 25, zebra_cost: 20, turn_cost: 5, steps_factor: 3, paved_pref: 0 } },
-  lang: { name: 'Langer Lauf', km: 16, paceOff: 15, tol: 0.08, points: 6,
+  lang: { name: 'Langer Lauf', km: 16, paceOff: 15, tol: 0.06, points: 6,
     hint: 'Ausdauer. Große Schleife, wenig Stopps und Kurven, gern am Wasser. Die Strecke soll man sich merken können.',
     p: { green_pref: 0.7, road_base: 1.8, big_road: 1.2, noise_weight: 0.4, route_bonus: 0.2, signal_cost: 150, crossing_unit: 35, zebra_cost: 30, turn_cost: 10, steps_factor: 3, paved_pref: 0 } },
   recovery: { name: 'Recovery', km: 5, paceOff: 40, tol: 0.15, points: 4,
     hint: 'Erholung. Kurz, weich, ruhig, nah am Start. Die genaue Länge ist Nebensache.',
     p: { green_pref: 1.0, road_base: 2.0, big_road: 1.5, noise_weight: 0.6, route_bonus: 0.1, signal_cost: 80, crossing_unit: 30, zebra_cost: 20, turn_cost: 0, steps_factor: 5, paved_pref: -1 } },
-  tempo: { name: 'Tempodauerlauf', km: 8, paceOff: -25, tol: 0.08, points: 5,
+  tempo: { name: 'Tempodauerlauf', km: 8, paceOff: -25, tol: 0.06, points: 5,
     hint: 'Schwelle. Möglichst ohne Stopp, glatter Belag, wenig Kurven. Je ca. 1,5 km Ein- und Auslaufen einplanen; die Tempophase aufs längste Stück ohne Querung legen.',
     p: { green_pref: 0.4, road_base: 1.6, big_road: 1.0, noise_weight: 0.3, route_bonus: 0.05, signal_cost: 250, crossing_unit: 50, zebra_cost: 60, turn_cost: 15, steps_factor: 20, paved_pref: 1 } },
   intervall: { name: 'Intervalle', lap: true, strict: true, paceOff: -45, tol: 0.15, points: 4,
@@ -38,7 +38,7 @@ const PRESETS = {
   wettkampf: { name: 'Wettkampf-Simulation', km: 10, strict: true, paceOff: -40, tol: 0.02, points: 6,
     hint: 'Renn-Generalprobe. Exakte Distanz, Asphalt, keine Stopps, wenige Kurven. Start = Ziel empfohlen.',
     p: { green_pref: 0.3, road_base: 1.6, big_road: 1.0, noise_weight: 0.2, route_bonus: 0, signal_cost: 300, crossing_unit: 60, zebra_cost: 80, turn_cost: 15, steps_factor: 30, paved_pref: 1 } },
-  fahrtspiel: { name: 'Fahrtspiel', km: 8, paceOff: 0, tol: 0.12, points: 5,
+  fahrtspiel: { name: 'Fahrtspiel', km: 8, paceOff: 0, tol: 0.06, points: 5,
     hint: 'Spielerisch. Abwechslungsreicher Belag, Stopps sind egal, Tempo nach Gefühl.',
     p: { green_pref: 0.8, road_base: 1.8, big_road: 0.8, noise_weight: 0.3, route_bonus: 0.1, signal_cost: 50, crossing_unit: 20, zebra_cost: 10, turn_cost: 0, steps_factor: 1.5, paved_pref: -0.5 } }
 };
@@ -733,7 +733,34 @@ async function greenVariants(A, B, L, pr, ctx, notes, loop) {
     const fs = got.map((v) => v.dist / v.combo.geo).sort((a, b) => a - b);
     f = clamp(fs[Math.floor(fs.length / 2)], 1.05, 2.5);
   }
+  // Feinregelung: die zwei günstigsten Grün-Routen außerhalb des Längenbereichs strecken oder kürzen
+  const fix = out.filter((v) => !inBand(v, L, pr)).sort((a, b) => a.cost / a.dist - b.cost / b.dist).slice(0, 2);
+  out.push(...settled(await Promise.allSettled(fix.map((v) => tuneGreen(A, B, L, v, P, ctx, loop))), []));
   return out;
+}
+async function tuneGreen(A, B, L, v, P, ctx, loop) {
+  const c = v.combo, fobs = clamp(v.dist / c.geo, 1, 3), need = (L - v.dist) / fobs; // geometrische Änderung in m
+  const pts = [{ x: 0, y: 0 }].concat(c.ord.map((a) => a.q), [loop ? { x: 0, y: 0 } : P.to(B)]);
+  const d = (p, q) => Math.hypot(q.x - p.x, q.y - p.y);
+  if (need > 0) { // längste Teilstrecke ausbeulen, weg vom Schwerpunkt der Route
+    let k = 0;
+    for (let i = 1; i < pts.length - 1; i++) if (d(pts[i], pts[i + 1]) > d(pts[k], pts[k + 1])) k = i;
+    const p = pts[k], q = pts[k + 1], leg = d(p, q) || 1, h = Math.sqrt(Math.pow((leg + need) / 2, 2) - Math.pow(leg / 2, 2));
+    const mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2, nx = -(q.y - p.y) / leg, ny = (q.x - p.x) / leg;
+    const cx = pts.reduce((sum, t) => sum + t.x, 0) / pts.length, cy = pts.reduce((sum, t) => sum + t.y, 0) / pts.length;
+    const side = (mx - cx) * nx + (my - cy) * ny >= 0 ? 1 : -1;
+    pts.splice(k + 1, 0, { x: mx + side * nx * h, y: my + side * ny * h });
+  } else { // den Anker weglassen, dessen Wegfall der Ziellänge am nächsten kommt
+    if (pts.length < 4) throw new RouteErr('Nicht kürzbar', 'other');
+    let best = -1, bestErr = Infinity;
+    for (let i = 1; i < pts.length - 1; i++) {
+      const geo = c.geo - d(pts[i - 1], pts[i]) - d(pts[i], pts[i + 1]) + d(pts[i - 1], pts[i + 1]);
+      if (Math.abs(geo - (c.geo + need)) < bestErr) { bestErr = Math.abs(geo - (c.geo + need)); best = i; }
+    }
+    pts.splice(best, 1);
+  }
+  const r = await brouter([A].concat(pts.slice(1, -1).map((q) => P.from(q)), [loop ? A : B]), ctx, {});
+  return Object.assign(r, { err: (r.dist - L) / L, name: v.name, combo: c, green: true });
 }
 
 // Ablauf: geometrische und Grün-Kandidaten, die günstigsten geometrischen nachregeln, drei verschiedene auswählen.

@@ -216,6 +216,7 @@ def run_app(pw, app_url, brouter, cases, places, mess_pid):
         res["status"] = page.inner_text("#status")
         res["requests"] = len(captured)
         res["notes"] = page.evaluate("window.__laufrouten.state.notes || []")
+        res["band"] = page.evaluate("(() => { const T = window.__laufrouten; return T.band ? T.band(T.state.lastL, T.PRESETS[T.settings.preset]) : null; })()")
         bodies = {}
         for r in captured:
             try:
@@ -279,7 +280,7 @@ def summarize(results, cases):
         agg["green_first"] += int(v.get("src") == "grün")
         agg["mess_orig"] += sum(1 for x in r["variants"] if x.get("mess") == "original")
         target = c["lap"] if c.get("lap") else c["km"] * 1000
-        band = target * 0.15 if c["preset"] == "intervall" else (target * 0.02 if c["preset"] == "wettkampf" else max(500, target * 0.1))
+        band = r.get("band") or (target * 0.15 if c["preset"] == "intervall" else (target * 0.02 if c["preset"] == "wettkampf" else max(500, target * 0.1)))
         agg["in_band"] += int(any(abs(x["dev"]) <= band for x in r["variants"]))
         for a in c.get("expect", []):
             agg["area_total"] += 1
