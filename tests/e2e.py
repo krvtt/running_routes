@@ -129,6 +129,21 @@ def main():
         body = [{"lat": str(p[1]), "lon": str(p[0]), "display_name": q.title() + ", Teststadt"}]
         route.fulfill(status=200, content_type="application/json", headers=CORS, body=json.dumps(body))
 
+    def overpass(route):
+        """Simulierte Grünflächen um den Testmittelpunkt: Park, See, Kanal."""
+        def ring(cx, cy, w, h):
+            pts = [offset(center, cx - w, cy - h), offset(center, cx + w, cy - h), offset(center, cx + w, cy + h),
+                   offset(center, cx - w, cy + h), offset(center, cx - w, cy - h)]
+            return [{"lat": p[1], "lon": p[0]} for p in pts]
+        k = a.scale
+        els = [
+            {"type": "way", "id": 1, "tags": {"leisure": "park", "name": "Testpark"}, "geometry": ring(-900 * k, 800 * k, 500 * k, 300 * k)},
+            {"type": "way", "id": 2, "tags": {"natural": "water", "name": "Testsee"}, "geometry": ring(1200 * k, -600 * k, 400 * k, 400 * k)},
+            {"type": "way", "id": 3, "tags": {"waterway": "canal", "name": "Testkanal"},
+             "geometry": [{"lat": p[1], "lon": p[0]} for p in (offset(center, -1500 * k, -1200 * k), offset(center, 0, -1500 * k), offset(center, 1500 * k, -1800 * k))]},
+        ]
+        route.fulfill(status=200, content_type="application/json", headers=CORS, body=json.dumps({"elements": els}))
+
     mock = MockBRouter()
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
@@ -137,6 +152,7 @@ def main():
         ctx.route("https://nominatim.openstreetmap.org/**", geocoder)
         ctx.route(re.compile(r"https://.*(tile\.openstreetmap|basemaps\.cartocdn).*"),
                   lambda r: r.fulfill(status=200, content_type="image/png", body=PNG))
+        ctx.route(re.compile(r"https://overpass[^/]*/api/interpreter"), overpass)
         if not a.brouter:
             ctx.route("https://brouter.de/**", mock)
         page = ctx.new_page()
@@ -209,6 +225,12 @@ def main():
         page.check("#stridesChk")
         page.fill("#kmInput", km(8))
         run("Rundkurs Dauerlauf mit Steigerungen")
+        green_names = page.evaluate("window.__laufrouten.state.variants.filter(v => v.green).map(v => v.name)")
+        green_count = page.evaluate("window.__laufrouten.state.greenCount || 0")
+        if a.brouter:  # echte Daten ohne Grün-Klassen: nur prüfen, dass Grün-Kandidaten gerechnet wurden
+            check("Grünflächen-Kandidaten gerechnet", green_count > 0, f"{green_count} Kandidaten")
+        else:
+            check("Grünflächen-Kandidaten in der Auswahl", len(green_names) > 0, ", ".join(green_names) or "keine")
         names_before = page.evaluate("window.__laufrouten.state.variants.map(v => v.name).join()")
         page.click("#againBtn")
         page.wait_for_function("!document.getElementById('goBtn').disabled", timeout=120000)

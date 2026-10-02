@@ -4,7 +4,7 @@
 'use strict';
 if (!window.L) { document.getElementById('status').textContent = 'Kartenbibliothek nicht geladen – Seite neu laden.'; return; }
 
-const APP_VERSION = '2.3.0';
+const APP_VERSION = '2.4.0';
 const PROFILE_URL = 'profiles/laufen.brf';
 const DEFAULT_SERVER = 'https://brouter.de';
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
@@ -473,27 +473,261 @@ function updateCalc() {
   $('calcOut').textContent = L ? '= ' + km1(L) + ' · ' + fmtDur(L / 1000 * pace) + ' bei ' + fmtPace(pace) + ' min/km' : '';
 }
 
-// Ablauf: viele grobe Kandidaten (je eine Anfrage), die günstigsten nachregeln, drei verschiedene auswählen.
+// ---------- Grünflächen aus OpenStreetMap (Overpass), je Kachel 30 Tage im Gerät ----------
+// Parks, Wälder, Kleingärten, Wiesen, Gewässer und Kanäle werden zu „Ankern“: Punkte in Grünflächen
+// und an Ufern. Kandidaten-Routen führen über 1–3 Anker; den Weg dazwischen wählt BRouter mit dem
+// Laufprofil, das Wege im Grünen bevorzugt. Ohne Daten bleibt es bei den geometrischen Kandidaten.
+const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
+const GT = { lat: 0.05, lon: 0.08 }, GREEN_TTL = 30 * 864e5, GREEN_VER = 1;
+const llp = (c) => ({ lat: c[1], lon: c[0] });
+function greenQuery(b) {
+  const bb = [b.s, b.w, b.n, b.e].map((x) => x.toFixed(4)).join(',');
+  const sel = ['way["leisure"~"^(park|garden|nature_reserve|recreation_ground)$"]', 'relation["leisure"~"^(park|nature_reserve)$"]',
+    'way["landuse"~"^(forest|allotments|recreation_ground|village_green|meadow)$"]', 'relation["landuse"="forest"]',
+    'way["natural"~"^(wood|water|heath)$"]', 'relation["natural"~"^(wood|water)$"]', 'way["waterway"~"^(river|canal)$"]'];
+  return '[out:json][timeout:25];(' + sel.map((x) => x + '(' + bb + ');').join('') + ');out tags geom qt;';
+}
+async function overpassQuery(q) {
+  let last = null;
+  for (const url of OVERPASS) {
+    try {
+      const res = await fetchT(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }, 30000);
+      if (res.ok) return await res.json();
+      last = new Error('Overpass ' + res.status);
+    } catch (e) { last = e; }
+  }
+  throw last || new Error('Overpass nicht erreichbar');
+}
+function thinLine(pts, minDist) {
+  const out = [pts[0]];
+  for (let i = 1; i < pts.length - 1; i++) if (hav(llp(out[out.length - 1]), llp(pts[i])) >= minDist) out.push(pts[i]);
+  if (pts.length > 1) out.push(pts[pts.length - 1]);
+  return out;
+}
+function parseGreen(data) {
+  const out = [];
+  (data.elements || []).forEach((el) => {
+    const t = el.tags || {};
+    const kind = t.waterway ? 'line' : (t.natural === 'water' ? 'water' : 'green');
+    let geoms = [];
+    if (el.type === 'way' && el.geometry) geoms = [el.geometry];
+    else if (el.type === 'relation' && el.members) geoms = el.members.filter((m) => m.type === 'way' && m.geometry && m.role !== 'inner').map((m) => m.geometry);
+    const lines = geoms.map((g) => thinLine(g.filter(Boolean).map((p) => [Math.round(p.lon * 1e5) / 1e5, Math.round(p.lat * 1e5) / 1e5]), 35))
+      .filter((l) => l.length >= 2);
+    if (lines.length) out.push({ id: el.type[0] + el.id, kind, name: t.name || '', lines });
+  });
+  return out;
+}
+async function pool(items, n, fn) {
+  const queue = items.slice();
+  await Promise.all(Array.from({ length: Math.min(n, queue.length) }, async () => { while (queue.length) await fn(queue.shift()); }));
+}
+// Grünflächen im Rechteck bb laden (höchstens 9 Kacheln, nächste zur Mitte zuerst)
+async function loadGreen(bb) {
+  const keys = [];
+  for (let y = Math.floor(bb.s / GT.lat); y <= Math.floor(bb.n / GT.lat); y++) {
+    for (let x = Math.floor(bb.w / GT.lon); x <= Math.floor(bb.e / GT.lon); x++) keys.push([y, x]);
+  }
+  const cy = (bb.s + bb.n) / 2 / GT.lat, cx = (bb.w + bb.e) / 2 / GT.lon;
+  keys.sort((a, b) => Math.hypot(a[0] + 0.5 - cy, a[1] + 0.5 - cx) - Math.hypot(b[0] + 0.5 - cy, b[1] + 0.5 - cx));
+  const feats = new Map();
+  let failed = 0;
+  await pool(keys.slice(0, 9), 2, async ([y, x]) => {
+    const key = 'green:' + GREEN_VER + ':' + y + ':' + x;
+    let c = await Store.get(key);
+    if (!c || Date.now() - c.ts > GREEN_TTL) {
+      try {
+        const b = { s: y * GT.lat, n: (y + 1) * GT.lat, w: x * GT.lon, e: (x + 1) * GT.lon };
+        c = { ts: Date.now(), f: parseGreen(await overpassQuery(greenQuery(b))) };
+        await Store.set(key, c);
+      } catch (e) { failed++; return; }
+    }
+    c.f.forEach((f) => feats.set(f.id, f));
+  });
+  return { feats: Array.from(feats.values()), failed };
+}
+
+// ---------- Anker ----------
+function shoelace(r) { let s = 0; for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length]; s += a.x * b.y - b.x * a.y; } return s / 2; }
+function centroidOf(r) {
+  const A = shoelace(r);
+  if (Math.abs(A) < 1) { const n = r.length; return { x: r.reduce((s, p) => s + p.x, 0) / n, y: r.reduce((s, p) => s + p.y, 0) / n }; }
+  let cx = 0, cy = 0;
+  for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length], k = a.x * b.y - b.x * a.y; cx += (a.x + b.x) * k; cy += (a.y + b.y) * k; }
+  return { x: cx / (6 * A), y: cy / (6 * A) };
+}
+function inside(r, p) {
+  let c = false;
+  for (let i = 0, j = r.length - 1; i < r.length; j = i++) {
+    if ((r[i].y > p.y) !== (r[j].y > p.y) && p.x < (r[j].x - r[i].x) * (p.y - r[i].y) / (r[j].y - r[i].y) + r[i].x) c = !c;
+  }
+  return c;
+}
+function samplePoly(pts, step) {
+  const out = [pts[0]];
+  let acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i], d = Math.hypot(b.x - a.x, b.y - a.y);
+    let t = step - acc;
+    while (t <= d) { out.push({ x: a.x + (b.x - a.x) * t / d, y: a.y + (b.y - a.y) * t / d }); t += step; }
+    acc = (acc + d) % step;
+  }
+  return out;
+}
+function anchorsFrom(feats, P) {
+  const out = [];
+  feats.forEach((F) => {
+    const lines = F.lines.map((l) => l.map((c) => P.to(llp(c))));
+    if (F.kind === 'line') {
+      const len = lines.reduce((s, l) => s + polyLenXY(l), 0);
+      if (len < 400) return;
+      lines.forEach((l) => samplePoly(l, 350).forEach((q) => out.push({ q, v: 1.2, fid: F.id, name: F.name })));
+      return;
+    }
+    const closed = lines.filter((l) => l.length >= 4 && Math.hypot(l[0].x - l[l.length - 1].x, l[0].y - l[l.length - 1].y) < 40);
+    const ring = (closed.length ? closed : lines).reduce((a, b) => (b.length > a.length ? b : a));
+    const area = closed.length ? closed.reduce((s, r) => s + Math.abs(shoelace(r)), 0) : 0.4 * bboxArea(lines);
+    const c = centroidOf(ring);
+    if (F.kind === 'water') {
+      if (area < 20000) return; // Teiche unter 2 ha weglassen
+      samplePoly(ring, 350).forEach((q) => { // 20 m vom Wasser weg, damit der Punkt auf dem Uferweg landet
+        const d = Math.hypot(q.x - c.x, q.y - c.y) || 1;
+        out.push({ q: { x: q.x + (q.x - c.x) / d * 20, y: q.y + (q.y - c.y) / d * 20 }, v: 1.5, fid: F.id, name: F.name });
+      });
+      return;
+    }
+    if (area < 10000) return; // Grünflächen unter 1 ha weglassen
+    const ha = area / 1e4, pts = [];
+    if (!closed.length || inside(ring, c)) pts.push(c);
+    if (ha >= 8) samplePoly(ring, 450).forEach((q) => { const p = { x: (q.x * 2 + c.x) / 3, y: (q.y * 2 + c.y) / 3 }; if (!closed.length || inside(ring, p)) pts.push(p); });
+    if (!pts.length) return;
+    const v = Math.max(0.6, Math.min(4, Math.sqrt(ha)) / Math.sqrt(pts.length));
+    pts.forEach((q) => out.push({ q, v, fid: F.id, name: F.name }));
+  });
+  // Dubletten unter 150 m zusammenfassen, höheren Wert behalten
+  out.sort((a, b) => b.v - a.v);
+  const kept = [];
+  out.forEach((a) => { if (!kept.some((k) => Math.hypot(k.q.x - a.q.x, k.q.y - a.q.y) < 150)) kept.push(a); });
+  return kept;
+}
+function polyLenXY(l) { let s = 0; for (let i = 1; i < l.length; i++) s += Math.hypot(l[i].x - l[i - 1].x, l[i].y - l[i - 1].y); return s; }
+function bboxArea(lines) {
+  let s = 1e9, w = 1e9, n = -1e9, e = -1e9;
+  lines.forEach((l) => l.forEach((p) => { s = Math.min(s, p.y); n = Math.max(n, p.y); w = Math.min(w, p.x); e = Math.max(e, p.x); }));
+  return Math.max(0, (n - s) * (e - w));
+}
+
+// Kombinationen aus 1–3 Ankern, deren geschätzte Länge passt; Wert = Grünflächen (jede einmal) und Vielfalt
+function greenCombos(B, L, anchors, f, loop, skip) {
+  const b = loop ? { x: 0, y: 0 } : B, ab = Math.hypot(b.x, b.y) || 1;
+  const Lg = L / f;
+  let cand = anchors.filter((a) => {
+    const d1 = Math.hypot(a.q.x, a.q.y), d2 = Math.hypot(a.q.x - b.x, a.q.y - b.y);
+    return d1 > 150 && d2 > 150 && (loop ? 2 * d1 : d1 + d2) <= Lg * 1.05;
+  });
+  cand.sort((p, q) => q.v - p.v);
+  cand = cand.slice(0, 28);
+  const combos = [];
+  const add = (arr) => {
+    const ord = loop ? arr.slice().sort((p, q) => Math.atan2(p.q.y, p.q.x) - Math.atan2(q.q.y, q.q.x))
+      : arr.slice().sort((p, q) => (p.q.x * b.x + p.q.y * b.y) - (q.q.x * b.x + q.q.y * b.y));
+    let geo = 0, prev = { x: 0, y: 0 };
+    ord.concat([{ q: b }]).forEach((a) => { geo += Math.hypot(a.q.x - prev.x, a.q.y - prev.y); prev = a.q; });
+    const est = geo * f, err = Math.abs(est - L) / L;
+    if (err > 0.2) return;
+    const fids = new Set();
+    let val = 0;
+    ord.forEach((a) => { val += fids.has(a.fid) ? a.v * 0.3 : a.v; fids.add(a.fid); });
+    if (loop && ord.length === 1) val *= 0.5; // nur hin und zurück
+    if (loop && ord.length >= 2) {
+      const a1 = Math.atan2(ord[0].q.y, ord[0].q.x), a2 = Math.atan2(ord[ord.length - 1].q.y, ord[ord.length - 1].q.x);
+      let span = Math.abs(a2 - a1); if (span > Math.PI) span = 2 * Math.PI - span;
+      if (span < 0.6) val *= 0.6; // Fächer zu schmal: fast hin und zurück
+    }
+    if (!loop) ord.forEach((a) => { const side = Math.abs(a.q.x * b.y - a.q.y * b.x) / ab; if (side < 80) val *= 0.9; });
+    const key = ord.map((a) => a.fid + '@' + Math.round(a.q.x) + ',' + Math.round(a.q.y)).join('|');
+    if (!skip.has(key)) combos.push({ ord, est, geo, val: val * (1 - err), key });
+  };
+  cand.forEach((a) => add([a]));
+  for (let i = 0; i < cand.length; i++) for (let j = i + 1; j < cand.length; j++) add([cand[i], cand[j]]);
+  const top = cand.slice(0, 14);
+  for (let i = 0; i < top.length; i++) for (let j = i + 1; j < top.length; j++) for (let k = j + 1; k < top.length; k++) add([top[i], top[j], top[k]]);
+  combos.sort((p, q) => q.val - p.val);
+  return combos;
+}
+function distinctCombos(combos, n) {
+  const out = [];
+  for (const c of combos) {
+    const f = new Set(c.ord.map((a) => a.fid));
+    if (out.some((o) => o.ord.filter((a) => f.has(a.fid)).length >= Math.max(1, Math.min(c.ord.length, o.ord.length)))) continue;
+    out.push(c);
+    if (out.length >= n) break;
+  }
+  return out;
+}
+function greenName(c) {
+  const names = [];
+  c.ord.forEach((a) => { if (a.name && names.indexOf(a.name) < 0) names.push(a.name); });
+  return names.length ? 'Über ' + names.slice(0, 2).join(' und ') : 'Grünzug';
+}
+// Grün-Kandidaten rechnen; bei Bedarf eine zweite Runde mit nachkalibriertem Umwegfaktor
+async function greenVariants(A, B, L, pr, ctx, notes, loop) {
+  const P = proj(A), Bq = loop ? null : P.to(B);
+  const R = loop ? L / 2.4 : L / 2.2, mid = loop ? A : { lat: (A.lat + B.lat) / 2, lon: (A.lon + B.lon) / 2 };
+  const dLat = R / 111320, dLon = R / (111320 * Math.cos(mid.lat * Math.PI / 180));
+  status('Lade Grünflächen …');
+  const g = await loadGreen({ s: mid.lat - dLat, n: mid.lat + dLat, w: mid.lon - dLon, e: mid.lon + dLon });
+  if (!g.feats.length) { if (g.failed) notes.push('Grünflächen gerade nicht abrufbar – nur Standard-Varianten.'); return []; }
+  const anchors = anchorsFrom(g.feats, P);
+  if (!anchors.length) return [];
+  const skip = new Set(state.shownGreen || []), out = [];
+  const routeCombo = (c) => brouter([A].concat(c.ord.map((a) => P.from(a.q)), [loop ? A : B]), ctx, {})
+    .then((r) => Object.assign(r, { err: (r.dist - L) / L, name: greenName(c), combo: c, green: true }));
+  let f = 1.3;
+  for (let round = 0; round < 2; round++) {
+    const picks = distinctCombos(greenCombos(Bq, L, anchors, f, loop, skip), round ? 2 : 4);
+    if (!picks.length) break;
+    picks.forEach((c) => skip.add(c.key));
+    const got = settled(await Promise.allSettled(picks.map(routeCombo)), notes);
+    out.push(...got);
+    if (got.some((v) => inBand(v, L, pr)) || !got.length) break;
+    const fs = got.map((v) => v.dist / v.combo.geo).sort((a, b) => a - b);
+    f = clamp(fs[Math.floor(fs.length / 2)], 1.05, 2.5);
+  }
+  return out;
+}
+
+// Ablauf: geometrische und Grün-Kandidaten, die günstigsten geometrischen nachregeln, drei verschiedene auswählen.
 async function loopVariants(A, L, pr, ctx, notes) {
   const n = pr.points, R0 = L / (loopFactor(n) * 1.25), base = (state.seed * 23 + 15) % 360;
-  const dirs = [0, 1, 2, 3, 4, 5].map((i) => base + i * 60);
-  let cands = settled(await Promise.allSettled(dirs.map((d) => fitLoop(A, L, d, pr, ctx, R0, 1))), notes);
-  const todo = cands.filter((c) => !inBand(c, L, pr)).sort((a, b) => a.cost / a.dist - b.cost / b.dist).slice(0, 3);
+  const nd = pr.strict ? 6 : 4, dirs = Array.from({ length: nd }, (_, i) => base + i * 360 / nd); // eng: mehr Formen für die Länge
+  const [geoRes, green] = await Promise.all([
+    Promise.allSettled(dirs.map((d) => fitLoop(A, L, d, pr, ctx, R0, 1))),
+    greenVariants(A, null, L, pr, ctx, notes, true).catch(() => [])
+  ]);
+  let cands = settled(geoRes, notes);
+  const todo = cands.filter((c) => !inBand(c, L, pr)).sort((a, b) => a.cost / a.dist - b.cost / b.dist).slice(0, green.length && !pr.strict ? 2 : 3);
   const refined = settled(await Promise.allSettled(todo.map((c) => fitLoop(A, L, c.dir, pr, ctx, c.R * L / c.dist, ctx.maxIter - 1))), notes);
   cands = cands.concat(refined);
   cands.forEach((v) => { v.name = (pr.lap ? 'Runde ' : 'Rundkurs ') + compass(v.dir); });
-  return cands;
+  state.greenCount = green.length;
+  return cands.concat(green);
 }
 async function detourVariants(A, B, L, pr, ctx, notes, direct) {
   const f0 = clamp(direct.dist / Math.max(hav(A, B), 1), 1.1, 2.5);
-  const shapes = state.seed % 2 ? [[0.4, 1], [0.6, -1], [0.25, -1], [0.75, 1]] : [[0.5, 1], [0.5, -1], [0.3, 1], [0.7, -1]];
-  let cands = settled(await Promise.allSettled(shapes.map((s) => fitDetour(A, B, L, f0, s[0], s[1], pr, ctx, 1).then((r) => Object.assign(r, { t: s[0], sign: s[1] })))), notes);
-  const todo = cands.filter((c) => !inBand(c, L, pr)).sort((a, b) => a.cost / a.dist - b.cost / b.dist).slice(0, 3);
+  const shapes = state.seed % 2 ? [[0.4, 1], [0.6, -1]] : [[0.5, 1], [0.5, -1]];
+  const [geoRes, green] = await Promise.all([
+    Promise.allSettled(shapes.map((s) => fitDetour(A, B, L, f0, s[0], s[1], pr, ctx, 1).then((r) => Object.assign(r, { t: s[0], sign: s[1] })))),
+    greenVariants(A, B, L, pr, ctx, notes, false).catch(() => [])
+  ]);
+  let cands = settled(geoRes, notes);
+  const todo = cands.filter((c) => !inBand(c, L, pr));
   const refined = settled(await Promise.allSettled(todo.map((c) => fitDetour(A, B, L, c.f, c.t, c.sign, pr, ctx, ctx.maxIter - 1))), notes);
   cands = cands.concat(refined);
   const M = [(A.lon + B.lon) / 2, (A.lat + B.lat) / 2];
   cands.forEach((v) => { v.name = 'Bogen ' + compass(bearing(M, [v.via.lon, v.via.lat])); });
-  return cands;
+  state.greenCount = green.length;
+  return cands.concat(green);
 }
 
 async function compute(again) {
@@ -508,6 +742,7 @@ async function compute(again) {
   const key = JSON.stringify([settings.preset, loop, A.lat, A.lon, B.lat, B.lon, Math.round(L)]);
   const reuse = !!again && key === state.lastKey;
   state.seed = reuse ? state.seed + 1 : 0;
+  if (!reuse) state.shownGreen = new Set();
   state.lastKey = key; state.lastL = L; state.fromHistory = false;
   const notes = [];
   setBusy(true);
@@ -534,6 +769,7 @@ async function compute(again) {
     }
     if (!cands.length) throw new RouteErr(notes[0] || 'Keine Route gefunden.', 'other');
     const vs = pickVariants(cands, L, pr, 3);
+    vs.forEach((v) => { if (v.combo) state.shownGreen.add(v.combo.key); });
     vs.forEach((v, i) => {
       v.q = quality(v); v.score = v.cost / v.dist; v.colorVar = COLORS[i % COLORS.length];
       if (settings.strides) v.strides = findStrides(v);
