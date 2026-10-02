@@ -1,0 +1,4 @@
+[
+  { "name": "Hamburg", "pbf": "https://download.geofabrik.de/europe/germany/hamburg-latest.osm.pbf" },
+  { "name": "Berlin", "pbf": "https://download.geofabrik.de/europe/germany/berlin-latest.osm.pbf" }
+]

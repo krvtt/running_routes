@@ -4,7 +4,7 @@
 'use strict';
 if (!window.L) { document.getElementById('status').textContent = 'Kartenbibliothek nicht geladen – Seite neu laden.'; return; }
 
-const APP_VERSION = '2.4.0';
+const APP_VERSION = '2.5.0';
 const PROFILE_URL = 'profiles/laufen.brf';
 const DEFAULT_SERVER = 'https://brouter.de';
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
@@ -522,8 +522,17 @@ async function pool(items, n, fn) {
   const queue = items.slice();
   await Promise.all(Array.from({ length: Math.min(n, queue.length) }, async () => { while (queue.length) await fn(queue.shift()); }));
 }
-// Grünflächen im Rechteck bb laden (höchstens 9 Kacheln, nächste zur Mitte zuerst). Nach budgetMs wird mit dem
-// gearbeitet, was da ist; fehlende Kacheln laden im Hintergrund weiter und stehen beim nächsten Mal bereit.
+// Vorberechnete Anker (tools/green_anchors.py) liegen als Kacheln unter data/green/ auf der eigenen Seite.
+const GREEN_DATA = 'data/green/';
+let greenIndex = null;
+async function greenIndexGet() {
+  if (greenIndex) return greenIndex;
+  greenIndex = new Set();
+  try { const r = await fetchT(GREEN_DATA + 'index.json', {}, 8000); if (r.ok) greenIndex = new Set((await r.json()).tiles || []); } catch (e) { /* ohne Index: Overpass */ }
+  return greenIndex;
+}
+// Grünflächen im Rechteck bb laden (höchstens 9 Kacheln, nächste zur Mitte zuerst): vorberechnete Kacheln, sonst
+// Overpass. Nach budgetMs wird mit dem gearbeitet, was da ist; fehlende Overpass-Kacheln laden im Hintergrund weiter.
 async function loadGreen(bb, budgetMs) {
   const keys = [];
   for (let y = Math.floor(bb.s / GT.lat); y <= Math.floor(bb.n / GT.lat); y++) {
@@ -531,13 +540,23 @@ async function loadGreen(bb, budgetMs) {
   }
   const cy = (bb.s + bb.n) / 2 / GT.lat, cx = (bb.w + bb.e) / 2 / GT.lon;
   keys.sort((a, b) => Math.hypot(a[0] + 0.5 - cy, a[1] + 0.5 - cx) - Math.hypot(b[0] + 0.5 - cy, b[1] + 0.5 - cx));
-  const feats = new Map(), res = { failed: 0, missing: 0 };
+  const index = await greenIndexGet();
+  const feats = new Map(), pre = [], res = { failed: 0, missing: 0, overpass: 0 };
   const todo = [];
-  for (const [y, x] of keys.slice(0, 9)) { // erst alles aus dem Speicher
+  await Promise.all(keys.slice(0, 9).map(async ([y, x]) => {
+    if (index.has(y + '_' + x)) {
+      try {
+        const r = await fetchT(GREEN_DATA + y + '_' + x + '.json', {}, 10000);
+        const j = await r.json();
+        j.a.forEach((a) => pre.push({ lon: a[0], lat: a[1], v: a[2], fid: j.f[a[3]][0], name: j.f[a[3]][1] }));
+        return;
+      } catch (e) { /* weiter mit Overpass */ }
+    }
     const key = 'green:' + GREEN_VER + ':' + y + ':' + x, c = await Store.get(key);
     if (c && Date.now() - c.ts < GREEN_TTL) c.f.forEach((f) => feats.set(f.id, f));
     else todo.push([y, x, key]);
-  }
+  }));
+  res.overpass = todo.length;
   const done = new Set();
   const work = pool(todo, 2, async ([y, x, key]) => {
     try {
@@ -551,6 +570,7 @@ async function loadGreen(bb, budgetMs) {
   if (todo.length) await Promise.race([work, new Promise((r) => setTimeout(r, budgetMs))]);
   res.missing = todo.length - done.size;
   res.feats = Array.from(feats.values());
+  res.pre = pre;
   return res;
 }
 
@@ -611,10 +631,20 @@ function anchorsFrom(feats, P) {
     const v = Math.max(0.6, Math.min(4, Math.sqrt(ha)) / Math.sqrt(pts.length));
     pts.forEach((q) => out.push({ q, v, fid: F.id, name: F.name }));
   });
-  // Dubletten unter 150 m zusammenfassen, höheren Wert behalten
-  out.sort((a, b) => b.v - a.v);
-  const kept = [];
-  out.forEach((a) => { if (!kept.some((k) => Math.hypot(k.q.x - a.q.x, k.q.y - a.q.y) < 150)) kept.push(a); });
+  return out;
+}
+// Dubletten unter 150 m zusammenfassen, höheren Wert behalten (Raster statt Paarvergleich)
+function dedupeAnchors(list) {
+  list.sort((a, b) => b.v - a.v);
+  const grid = new Map(), kept = [];
+  list.forEach((a) => {
+    const gx = Math.floor(a.q.x / 150), gy = Math.floor(a.q.y / 150);
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
+      const cell = grid.get((gx + i) + ':' + (gy + j));
+      if (cell && cell.some((k) => Math.hypot(k.q.x - a.q.x, k.q.y - a.q.y) < 150)) return;
+    }
+    const k = gx + ':' + gy; if (!grid.has(k)) grid.set(k, []); grid.get(k).push(a); kept.push(a);
+  });
   return kept;
 }
 function polyLenXY(l) { let s = 0; for (let i = 1; i < l.length; i++) s += Math.hypot(l[i].x - l[i - 1].x, l[i].y - l[i - 1].y); return s; }
@@ -684,10 +714,10 @@ async function greenVariants(A, B, L, pr, ctx, notes, loop) {
   const dLat = R / 111320, dLon = R / (111320 * Math.cos(mid.lat * Math.PI / 180));
   status('Lade Grünflächen …');
   const g = await loadGreen({ s: mid.lat - dLat, n: mid.lat + dLat, w: mid.lon - dLon, e: mid.lon + dLon }, 10000);
-  if (g.missing || g.failed) notes.push(g.feats.length ? 'Grünflächen nur teilweise geladen – beim nächsten Versuch vollständiger.'
+  const anchors = dedupeAnchors(anchorsFrom(g.feats, P).concat(g.pre.map((a) => ({ q: P.to(a), v: a.v, fid: a.fid, name: a.name }))));
+  if (g.missing || g.failed) notes.push(anchors.length ? 'Grünflächen nur teilweise geladen – beim nächsten Versuch vollständiger.'
     : 'Grünflächen gerade nicht abrufbar – nur Standard-Varianten.');
-  if (!g.feats.length) return [];
-  const anchors = anchorsFrom(g.feats, P);
+  state.greenAnchors = anchors.length;
   if (!anchors.length) return [];
   const skip = new Set(state.shownGreen || []), out = [];
   const routeCombo = (c) => brouter([A].concat(c.ord.map((a) => P.from(a.q)), [loop ? A : B]), ctx, {})
