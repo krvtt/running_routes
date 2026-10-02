@@ -4,7 +4,7 @@
 'use strict';
 if (!window.L) { document.getElementById('status').textContent = 'Kartenbibliothek nicht geladen – Seite neu laden.'; return; }
 
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.3.0';
 const PROFILE_URL = 'profiles/laufen.brf';
 const DEFAULT_SERVER = 'https://brouter.de';
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
@@ -22,25 +22,25 @@ const COLORS = ['--v1', '--v2', '--v3', '--v4'];
 const PRESETS = {
   dauer: { name: 'Lockerer Dauerlauf', km: 8, paceOff: 0, tol: 0.10, points: 5,
     hint: 'Grundlage, der Großteil deiner Kilometer. Viel Grün; eine Ampel ist okay, wenn sie Park oder Ufer erschließt.',
-    p: { green_weight: 0.6, noise_weight: 0.4, town_weight: 0.3, big_road: 1.0, signal_cost: 100, crossing_unit: 25, zebra_cost: 20, turn_cost: 25, steps_factor: 3, paved_pref: 0, route_bonus: 0.1 } },
+    p: { green_pref: 0.7, road_base: 1.8, big_road: 1.0, noise_weight: 0.4, route_bonus: 0.15, signal_cost: 100, crossing_unit: 25, zebra_cost: 20, turn_cost: 5, steps_factor: 3, paved_pref: 0 } },
   lang: { name: 'Langer Lauf', km: 16, paceOff: 15, tol: 0.08, points: 6,
     hint: 'Ausdauer. Große Schleife, wenig Stopps und Kurven, gern am Wasser. Die Strecke soll man sich merken können.',
-    p: { green_weight: 0.6, noise_weight: 0.4, town_weight: 0.5, big_road: 1.2, signal_cost: 150, crossing_unit: 35, zebra_cost: 30, turn_cost: 50, steps_factor: 3, paved_pref: 0, route_bonus: 0.15 } },
+    p: { green_pref: 0.7, road_base: 1.8, big_road: 1.2, noise_weight: 0.4, route_bonus: 0.2, signal_cost: 150, crossing_unit: 35, zebra_cost: 30, turn_cost: 10, steps_factor: 3, paved_pref: 0 } },
   recovery: { name: 'Recovery', km: 5, paceOff: 40, tol: 0.15, points: 4,
     hint: 'Erholung. Kurz, weich, ruhig, nah am Start. Die genaue Länge ist Nebensache.',
-    p: { green_weight: 0.8, noise_weight: 0.6, town_weight: 0.4, big_road: 1.5, signal_cost: 80, crossing_unit: 30, zebra_cost: 20, turn_cost: 15, steps_factor: 5, paved_pref: -1, route_bonus: 0.05 } },
+    p: { green_pref: 1.0, road_base: 2.0, big_road: 1.5, noise_weight: 0.6, route_bonus: 0.1, signal_cost: 80, crossing_unit: 30, zebra_cost: 20, turn_cost: 0, steps_factor: 5, paved_pref: -1 } },
   tempo: { name: 'Tempodauerlauf', km: 8, paceOff: -25, tol: 0.08, points: 5,
     hint: 'Schwelle. Möglichst ohne Stopp, glatter Belag, wenig Kurven. Je ca. 1,5 km Ein- und Auslaufen einplanen; die Tempophase aufs längste Stück ohne Querung legen.',
-    p: { green_weight: 0.3, noise_weight: 0.3, town_weight: 0.3, big_road: 1.0, signal_cost: 250, crossing_unit: 50, zebra_cost: 60, turn_cost: 60, steps_factor: 20, paved_pref: 1, route_bonus: 0.05 } },
+    p: { green_pref: 0.4, road_base: 1.6, big_road: 1.0, noise_weight: 0.3, route_bonus: 0.05, signal_cost: 250, crossing_unit: 50, zebra_cost: 60, turn_cost: 15, steps_factor: 20, paved_pref: 1 } },
   intervall: { name: 'Intervalle', lap: true, strict: true, paceOff: -45, tol: 0.15, points: 4,
     hint: 'Runde ohne Querung für Wiederholungen. Setz den Start auf die Stelle, an der die Runde liegen soll (z. B. im Park).',
-    p: { green_weight: 0.5, noise_weight: 0.3, town_weight: 0.2, big_road: 1.5, signal_cost: 500, crossing_unit: 100, zebra_cost: 200, turn_cost: 30, steps_factor: 30, paved_pref: 0.5, route_bonus: 0 } },
+    p: { green_pref: 0.6, road_base: 2.0, big_road: 1.5, noise_weight: 0.3, route_bonus: 0, signal_cost: 500, crossing_unit: 100, zebra_cost: 200, turn_cost: 5, steps_factor: 30, paved_pref: 0.5 } },
   wettkampf: { name: 'Wettkampf-Simulation', km: 10, strict: true, paceOff: -40, tol: 0.02, points: 6,
     hint: 'Renn-Generalprobe. Exakte Distanz, Asphalt, keine Stopps, wenige Kurven. Start = Ziel empfohlen.',
-    p: { green_weight: 0.2, noise_weight: 0.2, town_weight: 0.3, big_road: 1.0, signal_cost: 300, crossing_unit: 60, zebra_cost: 80, turn_cost: 80, steps_factor: 30, paved_pref: 1, route_bonus: 0 } },
+    p: { green_pref: 0.3, road_base: 1.6, big_road: 1.0, noise_weight: 0.2, route_bonus: 0, signal_cost: 300, crossing_unit: 60, zebra_cost: 80, turn_cost: 15, steps_factor: 30, paved_pref: 1 } },
   fahrtspiel: { name: 'Fahrtspiel', km: 8, paceOff: 0, tol: 0.12, points: 5,
     hint: 'Spielerisch. Abwechslungsreicher Belag, Stopps sind egal, Tempo nach Gefühl.',
-    p: { green_weight: 0.6, noise_weight: 0.3, town_weight: 0.2, big_road: 0.8, signal_cost: 50, crossing_unit: 20, zebra_cost: 10, turn_cost: 10, steps_factor: 1.5, paved_pref: -0.5, route_bonus: 0.1 } }
+    p: { green_pref: 0.8, road_base: 1.8, big_road: 0.8, noise_weight: 0.3, route_bonus: 0.1, signal_cost: 50, crossing_unit: 20, zebra_cost: 10, turn_cost: 0, steps_factor: 1.5, paved_pref: -0.5 } }
 };
 
 // ---------- Helfer ----------
@@ -286,7 +286,8 @@ function surfGroup(s) {
   if (/^(paved|paving_stones|sett|cobblestone|grass_paver|metal|wood)$/.test(s)) return 'paved';
   return 'unp';
 }
-function wayGroup(h) {
+function wayGroup(h, fw) {
+  if (/^(sidewalk|crossing)$/.test(fw || '')) return 'Gehweg an Straße';
   if (/^(path|track|bridleway)$/.test(h)) return 'Park-/Feldweg';
   if (/^(footway|pedestrian|steps|living_street)$/.test(h)) return 'Fußweg';
   if (/^(cycleway)$/.test(h)) return 'Radweg';
@@ -306,7 +307,7 @@ function parseRoute(gj) {
   return v;
 }
 function metrics(msgs, dist) {
-  const m = { green: 0, big: 0, surf: { asph: 0, paved: 0, unp: 0, unk: 0 }, way: {}, signals: [], zebras: [], cross: [], tot: 0, ok: false };
+  const m = { green: 0, street: 0, big: 0, surf: { asph: 0, paved: 0, unp: 0, unk: 0 }, way: {}, signals: [], zebras: [], cross: [], tot: 0, ok: false };
   if (!Array.isArray(msgs) || msgs.length < 2) return m;
   const h = msgs[0], col = (n, d) => { const i = h.indexOf(n); return i >= 0 ? i : d; };
   const iLon = col('Longitude', 0), iLat = col('Latitude', 1), iDist = col('Distance', 3), iWay = col('WayTags', 9), iNode = col('NodeTags', 10);
@@ -314,11 +315,14 @@ function metrics(msgs, dist) {
   msgs.slice(1).forEach((row) => {
     const d = Number(row[iDist]) || 0; pos += d; m.tot += d;
     const w = parseTags(row[iWay]), n = parseTags(row[iNode]);
-    if (Math.max(Number(w.estimated_forest_class || 0), Number(w.estimated_river_class || 0)) >= 3) m.green += d;
-    const hw = w.highway || '';
+    const hw = w.highway || '', g = wayGroup(hw, w.footway);
+    // Grün zählt nur auf Wegen (nicht auf Straßen oder Gehwegen am Parkrand)
+    const trail = g === 'Park-/Feldweg' || g === 'Fußweg';
+    if (trail && Math.max(Number(w.estimated_forest_class || 0), Number(w.estimated_river_class || 0)) >= 3) m.green += d;
+    if (!trail) m.street += d;
     if (/^(primary|secondary|trunk)(_link)?$/.test(hw)) m.big += d;
     m.surf[surfGroup(w.surface)] += d;
-    const g = wayGroup(hw); m.way[g] = (m.way[g] || 0) + d;
+    m.way[g] = (m.way[g] || 0) + d;
     const pt = { lat: Number(row[iLat]) / 1e6, lon: Number(row[iLon]) / 1e6, pos };
     if (n.highway === 'traffic_signals' || n.crossing === 'traffic_signals') m.signals.push(pt);
     else if (n.crossing === 'zebra' || n.crossing === 'marked') m.zebras.push(pt);
@@ -327,7 +331,7 @@ function metrics(msgs, dist) {
   m.signals = dedupe(m.signals, 40); m.zebras = dedupe(m.zebras, 25); m.cross = dedupe(m.cross, 25);
   m.ok = m.tot > 0;
   const scale = m.tot > 0 ? dist / m.tot : 1; // auf Gesamtlänge normieren
-  m.green *= scale; m.big *= scale;
+  m.green *= scale; m.big *= scale; m.street *= scale;
   return m;
 }
 // Abbiegungen aus der Geometrie: Richtungswechsel > 50° zwischen Abschnitten ≥ 12 m, Wechsel innerhalb 25 m zählen einmal
@@ -676,8 +680,9 @@ function renderDetail(pace) {
   if (state.sel === 0 && state.variants.length > 1 && !state.fromHistory) html += '<p class="trade">' + esc(tradeText(v, state.variants[1])) + '</p>';
   const tpk = v.turns != null && km > 0 ? v.turns / km : null;
   html += '<div class="kv">' +
-    '<span>Im Grünen / am Wasser</span><span>' + km1(v.m.green) + ' (' + Math.round(100 * v.m.green / Math.max(v.dist, 1)) + ' %)</span>' +
-    '<span>An großen Straßen</span><span>' + km1(v.m.big) + '</span>' +
+    '<span>Wege im Grünen / am Wasser</span><span>' + km1(v.m.green) + ' (' + Math.round(100 * v.m.green / Math.max(v.dist, 1)) + ' %)</span>' +
+    '<span>Straßen und Gehwege</span><span>' + km1(v.m.street || 0) + ' (' + Math.round(100 * (v.m.street || 0) / Math.max(v.dist, 1)) + ' %)</span>' +
+    '<span>davon große Straßen</span><span>' + km1(v.m.big) + '</span>' +
     '<span>Ampeln</span><span>' + v.m.signals.length + '</span>' +
     '<span>Hauptstraße ohne Ampel/Zebra queren</span><span>' + v.m.cross.length + (v.m.cross.length ? ' (max. Risiko ' + Math.max.apply(null, v.m.cross.map((c) => c.cls)) + ')' : '') + '</span>' +
     '<span>Zebrastreifen</span><span>' + v.m.zebras.length + '</span>' +

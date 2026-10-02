@@ -1,6 +1,6 @@
 /* Service Worker: App-Dateien offline verfügbar. Immer zuerst Netz, damit Updates sofort ankommen.
    Karten, Routing und Adresssuche (fremde Server) laufen nie über den Cache. */
-const CACHE = 'laufrouten-2.2.0';
+const CACHE = 'laufrouten-2.3.0';
 const ASSETS = ['./', './index.html', './app.js', './style.css', './manifest.webmanifest', './profiles/laufen.brf',
   './vendor/leaflet/leaflet.js', './vendor/leaflet/leaflet.css',
   './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png'];
