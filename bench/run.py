@@ -215,6 +215,7 @@ def run_app(pw, app_url, brouter, cases, places, mess_pid):
         res["seconds"] = round(time.time() - t0, 1)
         res["status"] = page.inner_text("#status")
         res["requests"] = len(captured)
+        res["notes"] = page.evaluate("window.__laufrouten.state.notes || []")
         bodies = {}
         for r in captured:
             try:
@@ -313,6 +314,10 @@ def report(all_results, cases, out_dir):
     for c in cases:
         lines.append(f"### {c['id']} ({c['preset']}, {'A→B' if c['mode'] == 'ab' else 'Rundkurs'}, "
                      f"{c.get('lap', '') or c.get('km')}{' m' if c.get('lap') else ' km'})")
+        for n in names:
+            r = next((x for x in all_results[n] if x["id"] == c["id"]), None)
+            if r and r.get("notes"):
+                lines.append(f"Hinweise {n}: " + " · ".join(r["notes"]))
         lines.append("")
         lines.append("| Version | Variante | Länge | Abw. | Grün | Straße | Gehweg | Ampeln/km | ohne Ampel/km | Abb./km | Grünflächen (m) | Messung |")
         lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|")

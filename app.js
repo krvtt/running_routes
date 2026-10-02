@@ -491,7 +491,7 @@ async function overpassQuery(q) {
   let last = null;
   for (const url of OVERPASS) {
     try {
-      const res = await fetchT(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }, 30000);
+      const res = await fetchT(url, { method: 'POST', body: 'data=' + encodeURIComponent(q), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }, 20000);
       if (res.ok) return await res.json();
       last = new Error('Overpass ' + res.status);
     } catch (e) { last = e; }
@@ -522,29 +522,36 @@ async function pool(items, n, fn) {
   const queue = items.slice();
   await Promise.all(Array.from({ length: Math.min(n, queue.length) }, async () => { while (queue.length) await fn(queue.shift()); }));
 }
-// Grünflächen im Rechteck bb laden (höchstens 9 Kacheln, nächste zur Mitte zuerst)
-async function loadGreen(bb) {
+// Grünflächen im Rechteck bb laden (höchstens 9 Kacheln, nächste zur Mitte zuerst). Nach budgetMs wird mit dem
+// gearbeitet, was da ist; fehlende Kacheln laden im Hintergrund weiter und stehen beim nächsten Mal bereit.
+async function loadGreen(bb, budgetMs) {
   const keys = [];
   for (let y = Math.floor(bb.s / GT.lat); y <= Math.floor(bb.n / GT.lat); y++) {
     for (let x = Math.floor(bb.w / GT.lon); x <= Math.floor(bb.e / GT.lon); x++) keys.push([y, x]);
   }
   const cy = (bb.s + bb.n) / 2 / GT.lat, cx = (bb.w + bb.e) / 2 / GT.lon;
   keys.sort((a, b) => Math.hypot(a[0] + 0.5 - cy, a[1] + 0.5 - cx) - Math.hypot(b[0] + 0.5 - cy, b[1] + 0.5 - cx));
-  const feats = new Map();
-  let failed = 0;
-  await pool(keys.slice(0, 9), 2, async ([y, x]) => {
-    const key = 'green:' + GREEN_VER + ':' + y + ':' + x;
-    let c = await Store.get(key);
-    if (!c || Date.now() - c.ts > GREEN_TTL) {
-      try {
-        const b = { s: y * GT.lat, n: (y + 1) * GT.lat, w: x * GT.lon, e: (x + 1) * GT.lon };
-        c = { ts: Date.now(), f: parseGreen(await overpassQuery(greenQuery(b))) };
-        await Store.set(key, c);
-      } catch (e) { failed++; return; }
-    }
-    c.f.forEach((f) => feats.set(f.id, f));
+  const feats = new Map(), res = { failed: 0, missing: 0 };
+  const todo = [];
+  for (const [y, x] of keys.slice(0, 9)) { // erst alles aus dem Speicher
+    const key = 'green:' + GREEN_VER + ':' + y + ':' + x, c = await Store.get(key);
+    if (c && Date.now() - c.ts < GREEN_TTL) c.f.forEach((f) => feats.set(f.id, f));
+    else todo.push([y, x, key]);
+  }
+  const done = new Set();
+  const work = pool(todo, 2, async ([y, x, key]) => {
+    try {
+      const b = { s: y * GT.lat, n: (y + 1) * GT.lat, w: x * GT.lon, e: (x + 1) * GT.lon };
+      const c = { ts: Date.now(), f: parseGreen(await overpassQuery(greenQuery(b))) };
+      await Store.set(key, c);
+      c.f.forEach((f) => feats.set(f.id, f));
+    } catch (e) { res.failed++; }
+    done.add(key);
   });
-  return { feats: Array.from(feats.values()), failed };
+  if (todo.length) await Promise.race([work, new Promise((r) => setTimeout(r, budgetMs))]);
+  res.missing = todo.length - done.size;
+  res.feats = Array.from(feats.values());
+  return res;
 }
 
 // ---------- Anker ----------
@@ -676,8 +683,10 @@ async function greenVariants(A, B, L, pr, ctx, notes, loop) {
   const R = loop ? L / 2.4 : L / 2.2, mid = loop ? A : { lat: (A.lat + B.lat) / 2, lon: (A.lon + B.lon) / 2 };
   const dLat = R / 111320, dLon = R / (111320 * Math.cos(mid.lat * Math.PI / 180));
   status('Lade Grünflächen …');
-  const g = await loadGreen({ s: mid.lat - dLat, n: mid.lat + dLat, w: mid.lon - dLon, e: mid.lon + dLon });
-  if (!g.feats.length) { if (g.failed) notes.push('Grünflächen gerade nicht abrufbar – nur Standard-Varianten.'); return []; }
+  const g = await loadGreen({ s: mid.lat - dLat, n: mid.lat + dLat, w: mid.lon - dLon, e: mid.lon + dLon }, 10000);
+  if (g.missing || g.failed) notes.push(g.feats.length ? 'Grünflächen nur teilweise geladen – beim nächsten Versuch vollständiger.'
+    : 'Grünflächen gerade nicht abrufbar – nur Standard-Varianten.');
+  if (!g.feats.length) return [];
   const anchors = anchorsFrom(g.feats, P);
   if (!anchors.length) return [];
   const skip = new Set(state.shownGreen || []), out = [];
@@ -775,11 +784,11 @@ async function compute(again) {
       if (settings.strides) v.strides = findStrides(v);
     });
     if (!vs.some((v) => inBand(v, L, pr))) notes.unshift('Keine Variante liegt im Bereich ±' + nf0.format(band(L, pr)) + ' m – nächstliegende zuerst.');
-    state.variants = vs; state.sel = 0; state.notes = notes;
+    const warn = notes.length && !vs.some((v) => inBand(v, L, pr));
+    state.variants = vs; state.sel = 0; state.notes = notes; state.statusNote = warn ? notes[0] : null;
     renderResults(true);
     await saveHistory();
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
-    const warn = notes.length && !vs.some((v) => inBand(v, L, pr));
     status(warn ? notes[0] : 'Fertig in ' + secs + ' s (' + calls + ' Anfragen). ' + vs.length + ' Varianten, beste zuerst.', warn ? 'warn' : 'ok');
   } catch (e) {
     status(e.message || String(e), 'err');
@@ -936,7 +945,7 @@ function renderDetail(pace) {
     const w = v.m.way, wt = Object.values(w).reduce((a, b) => a + b, 0) || 1;
     html += '<p class="hint">Wegtyp: ' + Object.keys(w).sort((a, b) => w[b] - w[a]).map((k) => k + ' ' + Math.round(w[k] / wt * 100) + ' %').join(' · ') + '</p>';
   }
-  const notes = state.notes.slice(1);
+  const notes = state.notes.filter((n) => n !== state.statusNote);
   if (state.lastL && !inBand(v, state.lastL, pr)) notes.push('Weicht ' + km1(Math.abs(v.dist - state.lastL)) + ' von der Wunschlänge ab.');
   if (!v.m.ok) notes.push('Der Server hat keine Wegdetails geliefert – Kennzahlen unvollständig.');
   if (notes.length) html += '<ul class="notes">' + notes.map((n) => '<li>' + esc(n) + '</li>').join('') + '</ul>';
