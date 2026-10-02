@@ -1,0 +1,114 @@
+name: Benchmark
+
+# Misst die Routenqualität mit echten Kartendaten (Hamburg, Berlin) gegen einen eigenen BRouter-Server.
+# Ergebnisse landen auf dem Branch "bench-results" (runs/<Zeit>-<Commit>/ und latest/).
+
+on:
+  push:
+    branches: [main]
+    paths: ["app.js", "profiles/**", "bench/**", ".github/workflows/benchmark.yml"]
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: "Vergleichsversion (Commit oder Tag)"
+        default: "3aa0e38"
+      only:
+        description: "Nur Fälle, deren id diesen Text enthält (leer = alle)"
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: benchmark
+  cancel-in-progress: true
+
+env:
+  BASELINE: ${{ inputs.baseline || '3aa0e38' }}
+  BROUTER_HOME: /home/runner/brouter
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Monat für den Cache
+        id: month
+        run: echo "m=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      - name: BRouter und Kartendaten aus dem Cache
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.BROUTER_HOME }}
+          key: brouter-1.7.10-${{ steps.month.outputs.m }}
+
+      - name: BRouter einrichten und starten
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bench/setup-brouter.sh E5_N50 E10_N50
+
+      - name: Cache speichern
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.BROUTER_HOME }}
+          key: brouter-1.7.10-${{ steps.month.outputs.m }}
+
+      - name: Playwright installieren
+        run: |
+          pip install --quiet playwright
+          python -m playwright install --with-deps chromium
+
+      - name: App-Versionen ausliefern
+        run: |
+          git worktree add --detach ../baseline "$BASELINE"
+          (python -m http.server 8765 > /dev/null 2>&1 &)
+          (cd ../baseline && python -m http.server 8766 > /dev/null 2>&1 &)
+          sleep 2
+
+      - name: Benchmark
+        run: |
+          ONLY="${{ inputs.only }}"
+          python bench/run.py --brouter http://localhost:17777 \
+            --app neu=http://localhost:8765/ --app "alt ($BASELINE)=http://localhost:8766/" \
+            ${ONLY:+--only "$ONLY"} --out bench-out
+
+      - name: Protokolle sammeln
+        if: always()
+        run: |
+          mkdir -p bench-out
+          tail -n 200 "$BROUTER_HOME/server.log" > bench-out/brouter.log 2>/dev/null || echo "kein Server-Log" > bench-out/brouter.log
+          ls -la "$BROUTER_HOME" "$BROUTER_HOME/segments4" > bench-out/dateien.txt 2>&1 || true
+          echo "Commit ${GITHUB_SHA::7}, Lauf ${{ github.run_id }}, Status ${{ job.status }}" > bench-out/lauf.txt
+
+      - name: Ergebnisse auf bench-results ablegen
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN="$(date -u +%Y%m%d-%H%M)-${GITHUB_SHA::7}"
+          mkdir ../results && cd ../results
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}"
+          if git fetch -q --depth 1 origin bench-results; then git checkout -q -b bench-results FETCH_HEAD; else git checkout -q --orphan bench-results; fi
+          mkdir -p "runs/$RUN" && cp -r "$GITHUB_WORKSPACE/bench-out/." "runs/$RUN/"
+          rm -rf latest && mkdir latest && cp -r "$GITHUB_WORKSPACE/bench-out/." latest/
+          git add -A
+          git commit -q -m "Benchmark $RUN"
+          git push -q origin HEAD:bench-results

@@ -1,0 +1,18 @@
+{
+  "_hinweis": "Testfälle für die Routenqualität. Orte werden per Nominatim geokodiert (Name + Stadt); 'expect' sind Grünflächen/Gewässer, die eine gute Route in Reichweite nutzen sollte.",
+  "cases": [
+    { "id": "hh-dammtor-rk8", "city": "Hamburg", "preset": "dauer", "mode": "rt", "km": 8, "start": "Bahnhof Dammtor", "expect": ["Planten un Blomen", "Außenalster"] },
+    { "id": "hh-hbf-schanze-ab10", "city": "Hamburg", "preset": "dauer", "mode": "ab", "km": 10, "start": "Hauptbahnhof", "end": "Bahnhof Sternschanze", "expect": ["Planten un Blomen", "Sternschanzenpark"] },
+    { "id": "hh-ritterstrasse-rk10", "city": "Hamburg", "preset": "dauer", "mode": "rt", "km": 10, "start": "U-Bahnhof Ritterstraße", "expect": ["Eilbektal"] },
+    { "id": "hh-wandsbek-uhland-ab8", "city": "Hamburg", "preset": "dauer", "mode": "ab", "km": 8, "start": "Wandsbek Markt", "end": "U-Bahnhof Uhlandstraße", "expect": ["Eilbektal"] },
+    { "id": "hh-christuskirche-hoheluft-ab6", "city": "Hamburg", "preset": "dauer", "mode": "ab", "km": 6, "start": "U-Bahnhof Christuskirche", "end": "U-Bahnhof Hoheluftbrücke", "expect": ["Isebekkanal"] },
+    { "id": "hh-kellinghusen-rk8", "city": "Hamburg", "preset": "dauer", "mode": "rt", "km": 8, "start": "U-Bahnhof Kellinghusenstraße", "expect": ["Hayns Park"] },
+    { "id": "hh-planetarium-lang14", "city": "Hamburg", "preset": "lang", "mode": "rt", "km": 14, "start": "Planetarium Hamburg", "expect": ["Stadtpark", "Außenalster"] },
+    { "id": "hh-altona-recovery5", "city": "Hamburg", "preset": "recovery", "mode": "rt", "km": 5, "start": "Bahnhof Altona", "expect": [] },
+    { "id": "hh-planten-intervall", "city": "Hamburg", "preset": "intervall", "mode": "rt", "lap": 1000, "start": "Planten un Blomen", "expect": ["Planten un Blomen"] },
+    { "id": "hh-kellinghusen-tempo8", "city": "Hamburg", "preset": "tempo", "mode": "rt", "km": 8, "start": "U-Bahnhof Kellinghusenstraße", "expect": [] },
+    { "id": "b-brandenburger-rk10", "city": "Berlin", "preset": "dauer", "mode": "rt", "km": 10, "start": "Brandenburger Tor", "expect": ["Großer Tiergarten"] },
+    { "id": "b-hbf-tempelhof-ab12", "city": "Berlin", "preset": "dauer", "mode": "ab", "km": 12, "start": "Berlin Hauptbahnhof", "end": "Tempelhofer Feld", "expect": ["Großer Tiergarten"] },
+    { "id": "b-tempelhof-wettkampf10", "city": "Berlin", "preset": "wettkampf", "mode": "rt", "km": 10, "start": "Tempelhofer Feld", "expect": [] }
+  ]
+}
