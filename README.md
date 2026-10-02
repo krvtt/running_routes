@@ -21,12 +21,12 @@ Läuft im Browser auf Android, iOS, Windows und macOS und lässt sich als App au
 
 Das Routing übernimmt [BRouter](https://github.com/abrensch/brouter) auf Basis von OpenStreetMap. Die App lädt beim ersten Aufruf ein eigenes Laufprofil ([`profiles/laufen.brf`](profiles/laufen.brf)) auf den Server. Das Profil bewertet jeden Weg mit einem Kostenfaktor (Parkweg = 1,0; Hauptstraße deutlich höher) und jede Ampel oder Querung mit einem Umweg-Äquivalent in Metern. Der Router nimmt eine Ampel also nur, wenn sie genug Park, Ufer oder ruhige Strecke erschließt. Die Trainingsarten verschieben diese Gewichte pro Anfrage über `profile:<name>=<wert>`.
 
-Die Wunschlänge regelt die App selbst nach:
+Varianten entstehen in zwei Schritten:
 
-- **Rundkurs:** Stützpunkte im Fächer um den Start in drei Richtungen; der Radius wird nachgeregelt, bis die Länge innerhalb der Toleranz der Trainingsart liegt.
-- **A → B:** Ist der direkte Weg zu kurz, entstehen Bögen links und rechts der Luftlinie über einen Zwischenpunkt, dessen Abstand ebenso nachgeregelt wird.
+1. **Kandidaten:** Beim Rundkurs sechs Richtungen, Stützpunkte im Fächer um den Start. Bei A → B vier Bögen über einen Zwischenpunkt links oder rechts der Luftlinie. Ist der direkte Weg schon lang genug, liefert BRouter Alternativrouten.
+2. **Auswahl:** Die günstigsten Kandidaten außerhalb des Längenbereichs werden nachgeregelt. Angezeigt werden drei möglichst verschiedene Varianten; zuerst die im Längenbereich, darunter die mit den geringsten Routing-Kosten pro Meter.
 
-Die Varianten werden nach den Routing-Kosten pro Meter und der Längenabweichung sortiert.
+Der Längenbereich ist die Toleranz der Trainingsart, mindestens ±500 m. Wettkampf-Simulation und Intervalle bleiben eng (±2 % bzw. ±15 %). Kurze Stichwege, die nur entstehen, weil ein Stützpunkt in einer Seitenstraße liegt, entfernt BRouter selbst (`correctMisplacedViaPoints`, bis 400 m einfache Strecke). Längere Hin-und-zurück-Abschnitte bleiben erhalten.
 
 ## Datenschutz
 

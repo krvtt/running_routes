@@ -163,20 +163,30 @@ def main():
         pick("start", "Start", "Arbeit")
         pick("end", "Ziel", "Zuhause")
 
-        def run(label, tol):
+        def run(label):
+            """Berechnen und prüfen, ob mindestens eine Variante im Längenbereich der App liegt."""
             page.click("#goBtn")
             page.wait_for_function("!document.getElementById('goBtn').disabled && document.getElementById('status').className",
                                    timeout=120000)
-            vs = page.evaluate("window.__laufrouten.state.variants.map(v => ({name: v.name, km: +(v.dist/1000).toFixed(2),"
-                               " err: +(v.err*100).toFixed(1), q: v.q, turns: v.turns, signals: v.m.signals.length}))")
-            ok = bool(vs) and page.evaluate("document.getElementById('status').className") != "err"
-            best = min((abs(v["err"]) for v in vs), default=999)
-            check(label, ok and best <= tol * 100 + 0.05, f"{status()} | beste Abweichung {best} % | {len(vs)} Varianten")
-            return vs
+            res = page.evaluate("""() => { const T = window.__laufrouten, L = T.state.lastL, pr = T.PRESETS[T.settings.preset];
+                // Stichwege: Wendepunkt, an dem die Route auf denselben Knoten zurückläuft (einfache Länge < 400 m)
+                const spurs = (c) => { let n = 0; const k = (p) => p[0].toFixed(6) + ',' + p[1].toFixed(6);
+                  for (let m = 1; m < c.length - 1; m++) { let j = 0, len = 0;
+                    while (m - j - 1 >= 0 && m + j + 1 < c.length && k(c[m - j - 1]) === k(c[m + j + 1])) j++;
+                    if (j) { for (let i = m - j; i < m; i++) { const dx = (c[i + 1][0] - c[i][0]) * 71500, dy = (c[i + 1][1] - c[i][1]) * 111320; len += Math.hypot(dx, dy); }
+                      if (len < 400) n++; m += j; } }
+                  return n; };
+                return { band: T.band(L, pr), vs: T.state.variants.map(v => ({ name: v.name, dev: Math.round(v.dist - L), spurs: spurs(v.coords) })) }; }""")
+            ok = bool(res["vs"]) and page.evaluate("document.getElementById('status').className") != "err"
+            best = min((abs(v["dev"]) for v in res["vs"]), default=10**9)
+            spurs = sum(v["spurs"] for v in res["vs"])
+            check(label, ok and best <= res["band"] and (not a.brouter or spurs == 0),
+                  f"{status()} | beste Abweichung {best} m (Bereich ±{round(res['band'])} m) | Stichwege {spurs}")
+            return res["vs"]
 
         # A→B, Länge über direktem Weg: Bögen mit Nachregelung
         page.fill("#kmInput", km(6))
-        run("A→B Dauerlauf mit Umweg", 0.10)
+        run("A→B Dauerlauf mit Umweg")
         with page.expect_download() as dl:
             page.click("#gpxBtn")
         gpx = open(dl.value.path()).read()
@@ -188,17 +198,17 @@ def main():
         page.click("#modeRT")
         page.click("[data-preset=wettkampf]")
         page.fill("#kmInput", km(10))
-        run("Rundkurs Wettkampf-Simulation", 0.05 if a.brouter else 0.02)
+        run("Rundkurs Wettkampf-Simulation")
         page.click("[data-preset=lang]")
         page.fill("#kmInput", km(25))
-        run("Rundkurs Langer Lauf", 0.08)
+        run("Rundkurs Langer Lauf")
         page.click("[data-preset=intervall]")
         page.fill("#lapInput", str(int(max(600, 1000 * a.scale))))
-        run("Intervall-Runde", 0.15)
+        run("Intervall-Runde")
         page.click("[data-preset=dauer]")
         page.check("#stridesChk")
         page.fill("#kmInput", km(8))
-        run("Rundkurs Dauerlauf mit Steigerungen", 0.10)
+        run("Rundkurs Dauerlauf mit Steigerungen")
         names_before = page.evaluate("window.__laufrouten.state.variants.map(v => v.name).join()")
         page.click("#againBtn")
         page.wait_for_function("!document.getElementById('goBtn').disabled", timeout=120000)
@@ -240,7 +250,7 @@ def main():
         page.emulate_media(color_scheme="dark")
         page.click("#modeAB")
         page.fill("#kmInput", km(6))
-        run("A→B im Dunkelmodus", 0.10)
+        run("A→B im Dunkelmodus")
         if a.shots:
             page.screenshot(path=f"{a.shots}/dunkel.png")
         browser.close()

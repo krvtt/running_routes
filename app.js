@@ -4,7 +4,7 @@
 'use strict';
 if (!window.L) { document.getElementById('status').textContent = 'Kartenbibliothek nicht geladen – Seite neu laden.'; return; }
 
-const APP_VERSION = '2.1.0';
+const APP_VERSION = '2.2.0';
 const PROFILE_URL = 'profiles/laufen.brf';
 const DEFAULT_SERVER = 'https://brouter.de';
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
@@ -32,10 +32,10 @@ const PRESETS = {
   tempo: { name: 'Tempodauerlauf', km: 8, paceOff: -25, tol: 0.08, points: 5,
     hint: 'Schwelle. Möglichst ohne Stopp, glatter Belag, wenig Kurven. Je ca. 1,5 km Ein- und Auslaufen einplanen; die Tempophase aufs längste Stück ohne Querung legen.',
     p: { green_weight: 0.3, noise_weight: 0.3, town_weight: 0.3, big_road: 1.0, signal_cost: 250, crossing_unit: 50, zebra_cost: 60, turn_cost: 60, steps_factor: 20, paved_pref: 1, route_bonus: 0.05 } },
-  intervall: { name: 'Intervalle', lap: true, paceOff: -45, tol: 0.15, points: 4,
+  intervall: { name: 'Intervalle', lap: true, strict: true, paceOff: -45, tol: 0.15, points: 4,
     hint: 'Runde ohne Querung für Wiederholungen. Setz den Start auf die Stelle, an der die Runde liegen soll (z. B. im Park).',
     p: { green_weight: 0.5, noise_weight: 0.3, town_weight: 0.2, big_road: 1.5, signal_cost: 500, crossing_unit: 100, zebra_cost: 200, turn_cost: 30, steps_factor: 30, paved_pref: 0.5, route_bonus: 0 } },
-  wettkampf: { name: 'Wettkampf-Simulation', km: 10, paceOff: -40, tol: 0.02, points: 6,
+  wettkampf: { name: 'Wettkampf-Simulation', km: 10, strict: true, paceOff: -40, tol: 0.02, points: 6,
     hint: 'Renn-Generalprobe. Exakte Distanz, Asphalt, keine Stopps, wenige Kurven. Start = Ziel empfohlen.',
     p: { green_weight: 0.2, noise_weight: 0.2, town_weight: 0.3, big_road: 1.0, signal_cost: 300, crossing_unit: 60, zebra_cost: 80, turn_cost: 80, steps_factor: 30, paved_pref: 1, route_bonus: 0 } },
   fahrtspiel: { name: 'Fahrtspiel', km: 8, paceOff: 0, tol: 0.12, points: 5,
@@ -344,27 +344,59 @@ function countTurns(coords) {
 }
 function dedupe(arr, gap) { const out = []; arr.forEach((x) => { const l = out[out.length - 1]; if (!l || x.pos - l.pos > gap) out.push(x); }); return out; }
 function quality(v) { return clamp(Math.round(100 * v.dist / Math.max(v.cost, v.dist)), 0, 100); }
-function scoreOf(v, L, tol) {
-  const err = Math.abs(v.dist - L) / L;
-  return (v.cost / Math.max(v.dist, 1)) * (1 + Math.max(0, err - tol / 2) * 3);
+
+// ---------- Länge und Auswahl ----------
+// Längenbereich: Wettkampf und Intervalle eng, sonst Toleranz der Trainingsart, mindestens ±500 m.
+function band(L, pr) { return pr.strict ? pr.tol * L : Math.max(pr.tol * L, 500); }
+function inBand(v, L, pr) { return Math.abs(v.dist - L) <= band(L, pr); }
+// Erst Routen im Längenbereich, darunter die mit den geringsten Kosten pro Meter (Grün, Wasser, Ruhe, wenig Stopps);
+// außerhalb des Bereichs zählt die Nähe zur Wunschlänge.
+function rank(vs, L, pr) {
+  return vs.slice().sort((a, b) => {
+    const ia = inBand(a, L, pr), ib = inBand(b, L, pr);
+    if (ia !== ib) return ia ? -1 : 1;
+    return ia ? a.cost / a.dist - b.cost / b.dist : Math.abs(a.dist - L) - Math.abs(b.dist - L);
+  });
+}
+// Anteil von a, der auf Wegen von b liegt (Raster ~30 m) – um fast gleiche Varianten auszusortieren
+function overlap(a, b) {
+  const key = (lon, lat) => Math.round(lat * 3600) + ':' + Math.round(lon * 2200);
+  const cells = new Set(); b.coords.forEach((c) => cells.add(key(c[0], c[1])));
+  const cum = cumOf(a), tot = cum[cum.length - 1] || 1;
+  let hit = 0, n = 0;
+  for (let m = 0; m < tot; m += 60) {
+    const p = pointAt(a, m * a.dist / tot); n++;
+    if (cells.has(key(p[1], p[0]))) hit++;
+  }
+  return n ? hit / n : 0;
+}
+function pickVariants(vs, L, pr, count) {
+  const out = [];
+  for (const v of rank(vs, L, pr)) {
+    if (out.some((o) => overlap(v, o) > 0.75)) continue;
+    out.push(v);
+    if (out.length >= count) break;
+  }
+  return out;
 }
 
-// ---------- Längenregelung ----------
+// ---------- Formen und Nachregeln ----------
 function loopFactor(n) { return 2 + (n - 2) * 2 * Math.sin(Math.PI / (2 * n)); } // Radius → Kreisroute (Geometrie)
-async function fitLoop(A, L, dir, preset, ctx) {
-  const n = preset.points, hist = [];
-  let R = L / (loopFactor(n) * 1.25), best = null, misses = 0;
-  for (let i = 0; i < ctx.maxIter; i++) {
+// Rundkurs in Richtung dir mit Radius R; regelt R nach, bis die Länge im Bereich liegt (höchstens maxIter Anfragen)
+async function fitLoop(A, L, dir, pr, ctx, R, maxIter) {
+  const n = pr.points, hist = [];
+  let best = null, misses = 0;
+  for (let i = 0; i < maxIter; i++) {
     let r;
     try { r = await brouter(circlePoints(A, R, n, dir), ctx, {}); }
     catch (e) {
       // Stützpunkt im Wasser o. Ä.: Richtung leicht drehen und Radius verkleinern (eigenes Budget)
-      if (e.kind === 'nomatch' && misses < 3) { misses++; dir += 25; R *= 0.85; i--; continue; }
+      if (e.kind === 'nomatch' && misses < 2) { misses++; dir += 25; R *= 0.85; i--; continue; }
       if (best) break; throw e;
     }
-    r.err = (r.dist - L) / L; hist.push({ R, d: r.dist });
+    r.err = (r.dist - L) / L; r.R = R; r.dir = dir; hist.push({ R, d: r.dist });
     if (!best || Math.abs(r.err) < Math.abs(best.err)) best = r;
-    if (Math.abs(r.err) <= ctx.tol) break;
+    if (inBand(r, L, pr)) break;
     let Rn = R * L / r.dist;
     const k = hist.length;
     if (k >= 2) {
@@ -387,27 +419,32 @@ function solveH(A, B, t, sign, G) {
   for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (len(mid) < G) lo = mid; else hi = mid; }
   return (lo + hi) / 2;
 }
-async function fitDetour(A, B, L, f0, t, sign, ctx) {
-  let h = solveH(A, B, t, sign, L / f0), best = null; const hist = [];
-  for (let i = 0; i < ctx.maxIter; i++) {
+// Bogen von A nach B über einen Zwischenpunkt bei Anteil t der Luftlinie, Seite sign; regelt die Ausbuchtung h nach
+async function fitDetour(A, B, L, f, t, sign, pr, ctx, maxIter) {
+  let h = solveH(A, B, t, sign, L / f), best = null, misses = 0; const hist = [];
+  for (let i = 0; i < maxIter; i++) {
     const via = viaPoint(A, B, t, sign * h);
     let r;
     try { r = await brouter([A, via, B], ctx, {}); }
-    catch (e) { if (e.kind === 'nomatch' && i < ctx.maxIter - 1) { h *= 0.75; continue; } if (best) break; throw e; }
-    r.err = (r.dist - L) / L; r.via = via; hist.push({ h, d: r.dist });
+    catch (e) { if (e.kind === 'nomatch' && misses < 2) { misses++; h *= 0.75; i--; continue; } if (best) break; throw e; }
+    r.err = (r.dist - L) / L; r.via = via; r.f = clamp(r.dist / polyLen([A, via, B]), 1, 3); hist.push({ h, d: r.dist });
     if (!best || Math.abs(r.err) < Math.abs(best.err)) best = r;
-    if (Math.abs(r.err) <= ctx.tol) break;
+    if (inBand(r, L, pr)) break;
     const k = hist.length; let hn;
     if (k >= 2 && Math.abs(hist[k - 1].d - hist[k - 2].d) > 50) {
       const p1 = hist[k - 2], p2 = hist[k - 1];
       hn = p2.h + (L - p2.d) * (p2.h - p1.h) / (p2.d - p1.d);
     } else {
-      const geo = polyLen([A, via, B]);
-      hn = solveH(A, B, t, sign, L / clamp(r.dist / geo, 1, 3));
+      hn = solveH(A, B, t, sign, L / r.f);
     }
     h = clamp(hn, 0, h * 3 + 500);
   }
   return best;
+}
+function settled(res, notes) {
+  const out = [];
+  res.forEach((x) => { if (x.status === 'fulfilled' && x.value) out.push(x.value); else if (x.status === 'rejected') notes.push(x.reason.message); });
+  return out;
 }
 
 // ---------- Berechnen ----------
@@ -432,6 +469,29 @@ function updateCalc() {
   $('calcOut').textContent = L ? '= ' + km1(L) + ' · ' + fmtDur(L / 1000 * pace) + ' bei ' + fmtPace(pace) + ' min/km' : '';
 }
 
+// Ablauf: viele grobe Kandidaten (je eine Anfrage), die günstigsten nachregeln, drei verschiedene auswählen.
+async function loopVariants(A, L, pr, ctx, notes) {
+  const n = pr.points, R0 = L / (loopFactor(n) * 1.25), base = (state.seed * 23 + 15) % 360;
+  const dirs = [0, 1, 2, 3, 4, 5].map((i) => base + i * 60);
+  let cands = settled(await Promise.allSettled(dirs.map((d) => fitLoop(A, L, d, pr, ctx, R0, 1))), notes);
+  const todo = cands.filter((c) => !inBand(c, L, pr)).sort((a, b) => a.cost / a.dist - b.cost / b.dist).slice(0, 3);
+  const refined = settled(await Promise.allSettled(todo.map((c) => fitLoop(A, L, c.dir, pr, ctx, c.R * L / c.dist, ctx.maxIter - 1))), notes);
+  cands = cands.concat(refined);
+  cands.forEach((v) => { v.name = (pr.lap ? 'Runde ' : 'Rundkurs ') + compass(v.dir); });
+  return cands;
+}
+async function detourVariants(A, B, L, pr, ctx, notes, direct) {
+  const f0 = clamp(direct.dist / Math.max(hav(A, B), 1), 1.1, 2.5);
+  const shapes = state.seed % 2 ? [[0.4, 1], [0.6, -1], [0.25, -1], [0.75, 1]] : [[0.5, 1], [0.5, -1], [0.3, 1], [0.7, -1]];
+  let cands = settled(await Promise.allSettled(shapes.map((s) => fitDetour(A, B, L, f0, s[0], s[1], pr, ctx, 1).then((r) => Object.assign(r, { t: s[0], sign: s[1] })))), notes);
+  const todo = cands.filter((c) => !inBand(c, L, pr)).sort((a, b) => a.cost / a.dist - b.cost / b.dist).slice(0, 3);
+  const refined = settled(await Promise.allSettled(todo.map((c) => fitDetour(A, B, L, c.f, c.t, c.sign, pr, ctx, ctx.maxIter - 1))), notes);
+  cands = cands.concat(refined);
+  const M = [(A.lon + B.lon) / 2, (A.lat + B.lat) / 2];
+  cands.forEach((v) => { v.name = 'Bogen ' + compass(bearing(M, [v.via.lon, v.via.lat])); });
+  return cands;
+}
+
 async function compute(again) {
   if (state.busy) return;
   const pr = PRESETS[settings.preset], L = targetMeters(), A = state.start;
@@ -449,60 +509,38 @@ async function compute(again) {
   setBusy(true);
   const t0 = performance.now();
   let calls = 0;
-  const ctx = { params: pr.p, tol: pr.tol, maxIter: pr.tol <= 0.03 ? 4 : 3, onCall: () => { calls++; status('Rechne … (' + calls + ' Anfragen)'); } };
+  const ctx = { params: pr.p, maxIter: pr.strict ? 4 : 3, onCall: () => { calls++; status('Rechne … (' + calls + ' Anfragen)'); } };
   try {
     status('Verbinde mit Routing-Server …');
     ctx.pid = await ensureProfile(false);
-    let vs = [];
+    let cands = [];
     if (loop) {
-      const base = (state.seed * 47 + 20) % 360;
-      const dirs = [base, base + 120, base + 240];
-      const res = await Promise.allSettled(dirs.map((d) => fitLoop(A, L, d, pr, ctx)));
-      res.forEach((x, i) => {
-        if (x.status === 'fulfilled' && x.value) vs.push(Object.assign(x.value, { name: (pr.lap ? 'Runde ' : 'Rundkurs ') + compass(dirs[i]) }));
-        else if (x.status === 'rejected') notes.push(x.reason.message);
-      });
+      cands = await loopVariants(A, L, pr, ctx, notes);
     } else {
-      const D = hav(A, B);
       const direct = await brouter([A, B], ctx, { alt: 0 });
       direct.err = (direct.dist - L) / L;
-      if (direct.dist >= L * (1 - pr.tol)) {
-        vs.push(Object.assign(direct, { name: 'Direkt' }));
-        const alts = await Promise.allSettled((state.seed % 2 ? [2, 3] : [1, 2]).map((alt) => brouter([A, B], ctx, { alt })));
-        alts.forEach((x, i) => { if (x.status === 'fulfilled') vs.push(Object.assign(x.value, { err: (x.value.dist - L) / L, name: 'Alternative ' + (i + 1) })); });
-        if (direct.dist > L * (1 + pr.tol)) notes.push('Der kürzeste sinnvolle Weg ist schon ' + km1(direct.dist) + ' lang.');
+      if (direct.dist >= L - band(L, pr)) {
+        cands.push(Object.assign(direct, { name: 'Direkt' }));
+        const alts = settled(await Promise.allSettled((state.seed % 2 ? [2, 3] : [1, 2]).map((alt) => brouter([A, B], ctx, { alt }))), notes);
+        alts.forEach((v, i) => cands.push(Object.assign(v, { err: (v.dist - L) / L, name: 'Alternative ' + (i + 1) })));
+        if (direct.dist > L + band(L, pr)) notes.push('Der kürzeste sinnvolle Weg ist schon ' + km1(direct.dist) + ' lang.');
       } else {
-        const f0 = clamp(direct.dist / Math.max(D, 1), 1.1, 2.5);
-        const t = [0.5, 0.35, 0.65][state.seed % 3];
-        const res = await Promise.allSettled([fitDetour(A, B, L, f0, t, 1, ctx), fitDetour(A, B, L, f0, t, -1, ctx)]);
-        res.forEach((x, i) => {
-          if (x.status === 'fulfilled' && x.value) vs.push(Object.assign(x.value, { name: i === 0 ? 'Bogen links' : 'Bogen rechts' }));
-          else if (x.status === 'rejected') notes.push(x.reason.message);
-        });
-        if (vs.length) {
-          const bestV = vs.slice().sort((a, b) => scoreOf(a, L, pr.tol) - scoreOf(b, L, pr.tol))[0];
-          try {
-            const alt = await brouter([A, bestV.via, B], ctx, { alt: 1 + (state.seed % 2) });
-            alt.err = (alt.dist - L) / L; alt.via = bestV.via;
-            if (Math.abs(alt.dist - bestV.dist) > 30 || Math.abs(alt.cost - bestV.cost) > 30) vs.push(Object.assign(alt, { name: bestV.name + ', Alternative' }));
-          } catch (e) { /* optional */ }
-        }
+        cands = await detourVariants(A, B, L, pr, ctx, notes, direct);
       }
     }
-    if (!vs.length) throw new RouteErr(notes[0] || 'Keine Route gefunden.', 'other');
-    vs.forEach((v) => {
-      v.q = quality(v); v.score = scoreOf(v, L, pr.tol);
+    if (!cands.length) throw new RouteErr(notes[0] || 'Keine Route gefunden.', 'other');
+    const vs = pickVariants(cands, L, pr, 3);
+    vs.forEach((v, i) => {
+      v.q = quality(v); v.score = v.cost / v.dist; v.colorVar = COLORS[i % COLORS.length];
       if (settings.strides) v.strides = findStrides(v);
     });
-    vs.sort((a, b) => a.score - b.score);
-    vs.forEach((v, i) => { v.colorVar = COLORS[i % COLORS.length]; });
-    const off = vs.filter((v) => Math.abs(v.err) > pr.tol).length;
-    if (off === vs.length) notes.push('Keine Variante trifft die Länge auf ±' + Math.round(pr.tol * 100) + ' % – beste Näherung angezeigt.');
+    if (!vs.some((v) => inBand(v, L, pr))) notes.unshift('Keine Variante liegt im Bereich ±' + nf0.format(band(L, pr)) + ' m – nächstliegende zuerst.');
     state.variants = vs; state.sel = 0; state.notes = notes;
     renderResults(true);
     await saveHistory();
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
-    status(notes.length ? notes[0] : 'Fertig in ' + secs + ' s (' + calls + ' Anfragen). ' + vs.length + ' Varianten, beste zuerst.', notes.length ? 'warn' : 'ok');
+    const warn = notes.length && !vs.some((v) => inBand(v, L, pr));
+    status(warn ? notes[0] : 'Fertig in ' + secs + ' s (' + calls + ' Anfragen). ' + vs.length + ' Varianten, beste zuerst.', warn ? 'warn' : 'ok');
   } catch (e) {
     status(e.message || String(e), 'err');
   } finally {
@@ -591,12 +629,12 @@ function renderResults(fit) {
   $('resCard').hidden = !state.variants.length;
   $('againBtn').hidden = state.fromHistory;
   $('variants').innerHTML = state.variants.map((v, i) => {
-    const pct = Math.round((v.err || 0) * 100);
+    const dev = v.dist - (state.lastL || v.dist), devTxt = Math.abs(dev) < 50 ? 'Länge passt' : (dev > 0 ? '+' : '−') + km1(Math.abs(dev));
     return '<button type="button" class="variant" data-i="' + i + '" aria-pressed="' + (i === state.sel) + '">' +
       '<span class="sw" style="background:' + cssVar(v.colorVar || '--v1') + '"></span>' +
       '<span class="body"><span class="name">' + esc(v.name) + (i === 0 && state.variants.length > 1 ? '<span class="badge">Empfehlung</span>' : '') + '</span>' +
-      '<span class="meta">' + fmtDur(v.dist / 1000 * pace) + ' · ' + (pct >= 0 ? '+' : '') + pct + ' % · Qualität ' + v.q + '</span>' +
-      '<span class="meta">Grün ' + km1(v.m.green) + ' · ' + v.m.signals.length + ' Ampel' + (v.m.signals.length === 1 ? '' : 'n') + ' · ' + v.m.cross.length + ' Querung' + (v.m.cross.length === 1 ? '' : 'en') + '</span></span>' +
+      '<span class="meta">' + fmtDur(v.dist / 1000 * pace) + ' · ' + devTxt + ' · Qualität ' + v.q + '</span>' +
+      '<span class="meta">Grün ' + km1(v.m.green) + ' · ' + v.m.signals.length + ' Ampel' + (v.m.signals.length === 1 ? '' : 'n') + ' · ' + v.m.cross.length + ' ohne Ampel' + '</span></span>' +
       '<span class="km">' + nf1.format(v.dist / 1000) + '</span></button>';
   }).join('');
   $('variants').querySelectorAll('.variant').forEach((b) => b.addEventListener('click', () => select(Number(b.dataset.i))));
@@ -641,7 +679,7 @@ function renderDetail(pace) {
     '<span>Im Grünen / am Wasser</span><span>' + km1(v.m.green) + ' (' + Math.round(100 * v.m.green / Math.max(v.dist, 1)) + ' %)</span>' +
     '<span>An großen Straßen</span><span>' + km1(v.m.big) + '</span>' +
     '<span>Ampeln</span><span>' + v.m.signals.length + '</span>' +
-    '<span>Querungen ohne Ampel</span><span>' + v.m.cross.length + (v.m.cross.length ? ' (max. Risiko ' + Math.max.apply(null, v.m.cross.map((c) => c.cls)) + ')' : '') + '</span>' +
+    '<span>Hauptstraße ohne Ampel/Zebra queren</span><span>' + v.m.cross.length + (v.m.cross.length ? ' (max. Risiko ' + Math.max.apply(null, v.m.cross.map((c) => c.cls)) + ')' : '') + '</span>' +
     '<span>Zebrastreifen</span><span>' + v.m.zebras.length + '</span>' +
     (tpk != null ? '<span>Abbiegungen</span><span>' + v.turns + ' (' + nf1.format(tpk) + ' pro km)</span>' : '') +
     '<span>Anstieg</span><span>' + nf0.format(v.up) + ' m</span></div>';
@@ -658,7 +696,7 @@ function renderDetail(pace) {
     html += '<p class="hint">Wegtyp: ' + Object.keys(w).sort((a, b) => w[b] - w[a]).map((k) => k + ' ' + Math.round(w[k] / wt * 100) + ' %').join(' · ') + '</p>';
   }
   const notes = state.notes.slice(1);
-  if (Math.abs(v.err || 0) > pr.tol) notes.push('Weicht ' + Math.round((v.err || 0) * 100) + ' % von der Wunschlänge ab.');
+  if (state.lastL && !inBand(v, state.lastL, pr)) notes.push('Weicht ' + km1(Math.abs(v.dist - state.lastL)) + ' von der Wunschlänge ab.');
   if (!v.m.ok) notes.push('Der Server hat keine Wegdetails geliefert – Kennzahlen unvollständig.');
   if (notes.length) html += '<ul class="notes">' + notes.map((n) => '<li>' + esc(n) + '</li>').join('') + '</ul>';
   $('detail').innerHTML = html;
@@ -955,5 +993,5 @@ if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
 })();
 
 // Für Tests im Browser erreichbar (keine Wirkung im Normalbetrieb)
-window.__laufrouten = { state, settings, PRESETS, metrics, findStrides, loopFactor, version: APP_VERSION };
+window.__laufrouten = { state, settings, PRESETS, metrics, findStrides, loopFactor, band, version: APP_VERSION };
 })();

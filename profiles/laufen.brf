@@ -8,7 +8,9 @@
 ---context:global
 
 assign validForFoot = true
-assign waypointCatchingRange = 400  # Stuetzpunkte im Wasser o. Ae. bis 400 m an den naechsten Weg ziehen
+assign waypointCatchingRange = 400              # Stuetzpunkte im Wasser o. Ae. bis 400 m an den naechsten Weg ziehen
+assign correctMisplacedViaPoints = true         # Stichwege zu Stuetzpunkten (hin und zurueck) entfernen,
+assign correctMisplacedViaPointsDistance = 400  # sofern sie einfache Strecke kuerzer als 400 m sind
 
 assign green_weight   = 0.6   # %green_weight% | Aufschlag fuer Wege ohne Gruen/Wasser | number
 assign noise_weight   = 0.4   # %noise_weight% | Aufschlag fuer Laerm | number
