@@ -1,8 +1,9 @@
-/* Service Worker: App-Dateien offline verfügbar; immer zuerst Netz, damit Updates sofort ankommen.
-   Karten, Routing und Suche laufen nie über den Cache. */
-const CACHE = 'laufrouten-2.0.0';
-const ASSETS = ['./', './index.html', './app.js', './style.css', './leaflet.js', './leaflet.css', './manifest.webmanifest',
-  './icon-192.png', './icon-512.png', './icon-maskable-512.png', './apple-touch-icon.png'];
+/* Service Worker: App-Dateien offline verfügbar. Immer zuerst Netz, damit Updates sofort ankommen.
+   Karten, Routing und Adresssuche (fremde Server) laufen nie über den Cache. */
+const CACHE = 'laufrouten-2.1.0';
+const ASSETS = ['./', './index.html', './app.js', './style.css', './manifest.webmanifest', './profiles/laufen.brf',
+  './vendor/leaflet/leaflet.js', './vendor/leaflet/leaflet.css',
+  './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/apple-touch-icon.png'];
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
 });

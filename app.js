@@ -1,10 +1,11 @@
-/* Laufrouten Hamburg – Stufe 1 (PWA, BRouter). Keine Konten, keine Schlüssel, Daten nur auf dem Gerät. */
+/* Laufrouten Hamburg – Laufstrecken mit Wunschlänge auf Basis von BRouter und OpenStreetMap.
+   Keine Konten, keine Schlüssel; Favoriten, Verlauf und Einstellungen bleiben auf dem Gerät. */
 (function () {
 'use strict';
 if (!window.L) { document.getElementById('status').textContent = 'Kartenbibliothek nicht geladen – Seite neu laden.'; return; }
 
-const APP_VERSION = '2.0.0';
-const PROFILE_TEXT = "# Laufrouten Hamburg - BRouter-Profil fuer Laufen (Stufe 1)\n# Kostenfaktor 1.0 = Park-/Waldweg. Alle Werte per URL \"profile:<name>=\" ueberschreibbar (Presets).\n\n---context:global\n\nassign validForFoot = true\nassign consider_forest = true   # BRouter nutzt das fuer die Startrichtung von Rundkursen\nassign consider_river  = true\n\nassign green_weight   = 0.6   # %green_weight% | Aufschlag fuer Wege ohne Gruen/Wasser | number\nassign noise_weight   = 0.4   # %noise_weight% | Aufschlag fuer Laerm | number\nassign town_weight    = 0.3   # %town_weight% | Aufschlag fuer dichte Innenstadt | number\nassign big_road       = 1.0   # %big_road% | Multiplikator fuer den Aufschlag grosser Strassen | number\nassign signal_cost    = 100   # %signal_cost% | Ampel in Metern Umweg-Aequivalent | number\nassign crossing_unit  = 25    # %crossing_unit% | ungesicherte Querung Haupt-/Nebenstrasse je Klasse 1-6 | number\nassign zebra_cost     = 20    # %zebra_cost% | Zebrastreifen | number\nassign turn_cost      = 25    # %turn_cost% | Abbiegen (90 Grad) in Metern | number\nassign steps_factor   = 3     # %steps_factor% | Kostenfaktor Treppen | number\nassign paved_pref     = 0     # %paved_pref% | -1 weich bevorzugen, 0 egal, 1 glatt bevorzugen | number\nassign route_bonus    = 0.1   # %route_bonus% | Aufschlag fuer Wege ohne markierte Wander-/Fussroute | number\n\nassign uphillcost   = 0\nassign downhillcost = 0\n\n---context:way\n\nassign footaccess =\n       if foot=no|private|use_sidepath then false\n       else if foot=yes|designated|permissive|destination then true\n       else if access=no|private then false\n       else if motorroad=yes then false\n       else if highway=motorway|motorway_link|construction|proposed|platform|raceway|abandoned|busway then false\n       else true\n\nassign base_cost =\n       if highway=path|track|bridleway then 1.0\n       else if highway=footway|pedestrian then 1.1\n       else if highway=living_street then 1.15\n       else if highway=cycleway then ( if foot=yes|designated then 1.2 else 1.5 )\n       else if highway=service then 1.3\n       else if highway=residential then 1.3\n       else if highway=unclassified then 1.4\n       else if highway=road then 1.5\n       else if highway=tertiary|tertiary_link then 1.8\n       else if highway=secondary|secondary_link then add 1 multiply big_road 1.5\n       else if highway=primary|primary_link then add 1 multiply big_road 2.5\n       else if highway=trunk|trunk_link then add 1 multiply big_road 4\n       else if highway=steps then steps_factor\n       else 2.0\n\nassign forest_s =\n       switch estimated_forest_class=6 1\n       switch estimated_forest_class=5 0.85\n       switch estimated_forest_class=4 0.7\n       switch estimated_forest_class=3 0.5\n       switch estimated_forest_class=2 0.3\n       switch estimated_forest_class=1 0.15 0\n\nassign river_s =\n       switch estimated_river_class=6 1\n       switch estimated_river_class=5 0.85\n       switch estimated_river_class=4 0.7\n       switch estimated_river_class=3 0.5\n       switch estimated_river_class=2 0.3\n       switch estimated_river_class=1 0.15 0\n\nassign no_green = sub 1 max forest_s river_s\n\nassign noise_s =\n       switch estimated_noise_class=6 1\n       switch estimated_noise_class=5 0.85\n       switch estimated_noise_class=4 0.65\n       switch estimated_noise_class=3 0.45\n       switch estimated_noise_class=2 0.25\n       switch estimated_noise_class=1 0.1 0\n\nassign town_s =\n       switch estimated_town_class=6 1\n       switch estimated_town_class=5 0.85\n       switch estimated_town_class=4 0.7\n       switch estimated_town_class=3 0.5\n       switch estimated_town_class=2 0.3\n       switch estimated_town_class=1 0.1 0\n\nassign on_route =\n       or route_hiking_iwn=yes or route_hiking_nwn=yes or route_hiking_rwn=yes or route_hiking_lwn=yes\n       or route_foot_nwn=yes or route_foot_rwn=yes route_foot_lwn=yes\n\nassign is_smooth = surface=asphalt|paved|concrete|paving_stones\nassign is_soft   = surface=compacted|fine_gravel|ground|dirt|earth|gravel|unpaved|grass|wood\nassign is_bad    = surface=mud|sand|pebblestone|sett|cobblestone|rock|stone|clay\n\nassign surface_f =\n       if is_bad then 1.3\n       else if greater paved_pref 0 then ( if is_soft then add 1 multiply paved_pref 0.3 else 1 )\n       else if lesser paved_pref 0 then ( if is_smooth then add 1 multiply sub 0 paved_pref 0.15 else 1 )\n       else 1\n\nassign env_cost =\n       add multiply green_weight no_green\n       add multiply noise_weight noise_s\n       add multiply town_weight town_s\n           if on_route then 0 else route_bonus\n\nassign costfactor =\n       if not footaccess then 100000\n       else multiply surface_f add base_cost env_cost\n\nassign turncost    = turn_cost\nassign initialcost = 0\n\n---context:node\n\nassign footaccess_n =\n       if foot=no|private then false\n       else if foot=yes|designated|permissive then true\n       else not access=no|private\n\nassign initialcost =\n       if not footaccess_n then 1000000\n       else if or highway=traffic_signals crossing=traffic_signals then signal_cost\n       else if crossing=zebra|marked then zebra_cost\n       else if estimated_crossing_class=6 then multiply crossing_unit 6\n       else if estimated_crossing_class=5 then multiply crossing_unit 5\n       else if estimated_crossing_class=4 then multiply crossing_unit 4\n       else if estimated_crossing_class=3 then multiply crossing_unit 3\n       else if estimated_crossing_class=2 then multiply crossing_unit 2\n       else if estimated_crossing_class=1 then crossing_unit\n       else 0\n";
+const APP_VERSION = '2.1.0';
+const PROFILE_URL = 'profiles/laufen.brf';
 const DEFAULT_SERVER = 'https://brouter.de';
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
 const HH = { lat: 53.5511, lon: 9.9937 };
@@ -203,14 +204,24 @@ async function geocode(q) {
 
 // ---------- BRouter ----------
 function server() { return (settings.server || DEFAULT_SERVER).replace(/\/+$/, ''); }
+let profileText = null;
+async function loadProfileText() {
+  if (profileText) return profileText;
+  let res;
+  try { res = await fetchT(PROFILE_URL, { cache: 'no-cache' }, 15000); } catch (e) { res = null; }
+  if (!res || !res.ok) throw new RouteErr('Routing-Profil konnte nicht geladen werden. Seite neu laden.', 'other');
+  profileText = await res.text();
+  return profileText;
+}
 async function ensureProfile(force) {
-  const hash = fnv(PROFILE_TEXT + '|' + server());
+  const text = await loadProfileText();
+  const hash = fnv(text + '|' + server());
   if (!force) {
     const c = await Store.get('profile');
     if (c && c.hash === hash && Date.now() - c.ts < 6 * 3600e3) return c.id;
   }
   let res, j = null;
-  try { res = await fetchT(server() + '/brouter/profile', { method: 'POST', body: PROFILE_TEXT, headers: { 'Content-Type': 'text/plain' } }, 30000); }
+  try { res = await fetchT(server() + '/brouter/profile', { method: 'POST', body: text, headers: { 'Content-Type': 'text/plain' } }, 30000); }
   catch (e) { throw new RouteErr('Routing-Server nicht erreichbar. Internet prüfen oder später erneut versuchen.', 'net'); }
   try { j = await res.json(); } catch (e) { /* kein JSON */ }
   if (!j || !j.profileid || j.error) throw new RouteErr('Routing-Profil wurde vom Server abgelehnt' + (j && j.error ? ': ' + j.error : '.'), 'profile');
@@ -219,8 +230,8 @@ async function ensureProfile(force) {
 }
 function errKind(text) {
   const t = String(text).toLowerCase();
-  if (/profile.*(not|does not|nicht)|no such profile|unknown profile|profile .* not found/.test(t)) return 'profile';
-  if (/not mapped|no track found|island|position not/.test(t)) return 'nomatch';
+  if (/profile custom_\w+(\.brf)* does not exist/.test(t)) return 'profile'; // Server hat hochgeladenes Profil verworfen
+  if (/not mapped|no track found|island|position not|not found in/.test(t)) return 'nomatch';
   if (/killed|timeout|watchdog|busy|too many/.test(t)) return 'busy';
   return 'other';
 }
@@ -233,19 +244,18 @@ function errText(text, kind) {
 const net = { calls: 0 };
 function query(points, params, extra) {
   const parts = ['lonlats=' + points.map((p) => p.lon.toFixed(6) + ',' + p.lat.toFixed(6)).join('|'),
-    'profile=' + extra.pid, 'alternativeidx=' + (extra.alt || 0), 'format=geojson', 'timode=1'];
+    'profile=' + extra.pid, 'alternativeidx=' + (extra.alt || 0), 'format=geojson'];
   Object.keys(params).forEach((k) => parts.push('profile:' + k + '=' + params[k]));
-  if (extra.rt) parts.push('engineMode=4', 'roundTripDistance=' + Math.round(extra.rt.R), 'roundTripPoints=' + extra.rt.n,
-    'roundTripStartDirection=' + Math.round(((extra.rt.dir % 360) + 360) % 360));
   return parts.join('&');
 }
-function circlePoints(A, R, n, dir) { // wie BRouter buildPointsFromCircle, für Server ohne Rundkurs-Modus
+// Rundkurs-Stützpunkte: Fächer aus n-1 Punkten im Abstand R um den Start (Geometrie wie BRouter-Rundkurs).
+// Bewusst clientseitig: Der Rundkurs-Modus des Servers ist zwischen BRouter-Versionen nicht kompatibel.
+function circlePoints(A, R, n, dir) {
   const P = proj(A), out = [A];
   for (let i = 1; i < n; i++) { const a = (dir - (90 - 180 * i / n)) * Math.PI / 180; out.push(P.from({ x: R * Math.sin(a), y: R * Math.cos(a) })); }
   out.push(A); return out;
 }
 async function brouter(points, ctx, extra) {
-  if (extra && extra.rt && ctx.noNativeRt) { points = circlePoints(points[0], extra.rt.R, extra.rt.n, extra.rt.dir); extra = Object.assign({}, extra, { rt: null }); }
   for (let attempt = 0; attempt < 2; attempt++) {
     const q = query(points, ctx.params, Object.assign({ pid: ctx.pid }, extra || {}));
     let res, text;
@@ -291,7 +301,7 @@ function parseRoute(gj) {
   const p = f.properties || {};
   const coords = f.geometry.coordinates.map((c) => [Number(c[0]), Number(c[1]), c.length > 2 ? Number(c[2]) : NaN]);
   const dist = Number(p['track-length']) || polyLen(coords.map((c) => ({ lat: c[1], lon: c[0] })));
-  const v = { coords, dist, cost: Number(p.cost) || dist * 2, up: Number(p['filtered ascend']) || 0, turns: Array.isArray(p.voicehints) ? p.voicehints.length : null };
+  const v = { coords, dist, cost: Number(p.cost) || dist * 2, up: Number(p['filtered ascend']) || 0, turns: countTurns(coords) };
   v.m = metrics(p.messages, dist);
   return v;
 }
@@ -320,6 +330,18 @@ function metrics(msgs, dist) {
   m.green *= scale; m.big *= scale;
   return m;
 }
+// Abbiegungen aus der Geometrie: Richtungswechsel > 50° zwischen Abschnitten ≥ 12 m, Wechsel innerhalb 25 m zählen einmal
+function countTurns(coords) {
+  const ll = (c) => ({ lat: c[1], lon: c[0] });
+  const pts = [coords[0]];
+  for (let i = 1; i < coords.length; i++) if (hav(ll(pts[pts.length - 1]), ll(coords[i])) >= 12) pts.push(coords[i]);
+  let turns = 0, pos = 0, lastTurn = -1e9;
+  for (let i = 1; i < pts.length - 1; i++) {
+    pos += hav(ll(pts[i - 1]), ll(pts[i]));
+    if (angDiff(bearing(pts[i - 1], pts[i]), bearing(pts[i], pts[i + 1])) > 50 && pos - lastTurn > 25) { turns++; lastTurn = pos; }
+  }
+  return turns;
+}
 function dedupe(arr, gap) { const out = []; arr.forEach((x) => { const l = out[out.length - 1]; if (!l || x.pos - l.pos > gap) out.push(x); }); return out; }
 function quality(v) { return clamp(Math.round(100 * v.dist / Math.max(v.cost, v.dist)), 0, 100); }
 function scoreOf(v, L, tol) {
@@ -331,13 +353,13 @@ function scoreOf(v, L, tol) {
 function loopFactor(n) { return 2 + (n - 2) * 2 * Math.sin(Math.PI / (2 * n)); } // Radius → Kreisroute (Geometrie)
 async function fitLoop(A, L, dir, preset, ctx) {
   const n = preset.points, hist = [];
-  let R = L / (loopFactor(n) * 1.25), best = null;
+  let R = L / (loopFactor(n) * 1.25), best = null, misses = 0;
   for (let i = 0; i < ctx.maxIter; i++) {
-    let r; const wasNative = !ctx.noNativeRt;
-    try { r = await brouter([A], ctx, { rt: { R, n, dir } }); }
+    let r;
+    try { r = await brouter(circlePoints(A, R, n, dir), ctx, {}); }
     catch (e) {
-      if (e.kind === 'other' && wasNative) { ctx.noNativeRt = true; i--; continue; } // Server ohne Rundkurs-Modus
-      if (e.kind === 'nomatch' && i < ctx.maxIter - 1) { R *= 0.8; continue; }
+      // Stützpunkt im Wasser o. Ä.: Richtung leicht drehen und Radius verkleinern (eigenes Budget)
+      if (e.kind === 'nomatch' && misses < 3) { misses++; dir += 25; R *= 0.85; i--; continue; }
       if (best) break; throw e;
     }
     r.err = (r.dist - L) / L; hist.push({ R, d: r.dist });
