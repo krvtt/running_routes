@@ -409,9 +409,8 @@ function inBand(v, L, pr) { return Math.abs(v.dist - L) <= band(L, pr); }
 function score(v) { return (v.cost + (v.pen || 0)) / v.dist; }
 // Erst Routen im Längenbereich, dann bis zur doppelten Toleranz, jeweils nach Bewertung; danach Nähe zur Wunschlänge.
 function rank(vs, L, pr) {
-  const tier = (v) => (inBand(v, L, pr) ? 0 : (Math.abs(v.dist - L) <= band2(L, pr) ? 1 : 2));
   return vs.slice().sort((a, b) => {
-    const ta = tier(a), tb = tier(b);
+    const ta = tierOf(a, L, pr), tb = tierOf(b, L, pr);
     if (ta !== tb) return ta - tb;
     return ta < 2 ? score(a) - score(b) : Math.abs(a.dist - L) - Math.abs(b.dist - L);
   });
@@ -428,14 +427,16 @@ function overlap(a, b) {
   }
   return n ? hit / n : 0;
 }
+// Empfehlung: die beste im Längenbereich. Weitere Varianten nach Bewertung aus Bereich und doppelter Toleranz
+// (angezeigt: Bereich zuerst), sonst nach Nähe zur Wunschlänge.
+function tierOf(v, L, pr) { return inBand(v, L, pr) ? 0 : (Math.abs(v.dist - L) <= band2(L, pr) ? 1 : 2); }
 function pickVariants(vs, L, pr, count) {
-  const out = [];
-  for (const v of rank(vs, L, pr)) {
-    if (out.some((o) => overlap(v, o) > 0.75)) continue;
-    out.push(v);
-    if (out.length >= count) break;
-  }
-  return out;
+  const ranked = rank(vs, L, pr), out = [];
+  const ok = (v) => out.indexOf(v) < 0 && !out.some((o) => overlap(v, o) > 0.75);
+  for (const v of ranked) if (ok(v)) { out.push(v); break; }
+  for (const v of ranked.filter((x) => tierOf(x, L, pr) < 2).sort((a, b) => score(a) - score(b))) { if (out.length >= count) break; if (ok(v)) out.push(v); }
+  for (const v of ranked) { if (out.length >= count) break; if (ok(v)) out.push(v); }
+  return out.slice(0, 1).concat(out.slice(1).sort((a, b) => tierOf(a, L, pr) - tierOf(b, L, pr) || score(a) - score(b)));
 }
 
 // ---------- Formen und Nachregeln ----------
@@ -961,18 +962,24 @@ async function greenVariants(A, B, L, pr, ctx, notes, loop) {
   const picks = distinctPicks(candidates(Bq, L, anchors, rings, 1.3, loop), pr.lap ? 1 : 4, pr.lap ? 1 : 3, skip);
   out.push(...settled(await Promise.allSettled(picks.map(route)), notes));
   state.arcCount = picks.filter((c) => c.ring).length;
-  // Länge nachregeln: Bogen verlängern oder kürzen (statt Umwege in Seitenstraßen), sonst Anker weglassen
-  const fix = out.filter((v) => v.combo && !v.lapN && !inBand(v, L, pr) && Math.abs(v.err) < 0.3).sort((a, b) => score(a) - score(b)).slice(0, 4);
-  out.push(...settled(await Promise.allSettled(fix.map((v) => {
+  // Länge nachregeln: Bogen verlängern oder kürzen (statt Umwege in Seitenstraßen), sonst Anker weglassen.
+  // Erster Schritt mit dem beobachteten Umwegfaktor, zweiter über die Sekante aus beiden Messungen.
+  const regulate = (v) => {
     const c = v.combo;
-    if (c.el) {
-      const de = clamp((L - v.dist) / (FA * clamp(v.dist / c.est, 0.8, 1.6)), c.el.lo, c.el.hi); // beobachteter Umwegfaktor
-      if (Math.abs(de) < 60) return null;
-      const stops = withE(c.stops, c.el, de);
-      return route(Object.assign({}, c, { stops, el: Object.assign({}, c.el, { lo: c.el.lo - de, hi: c.el.hi - de }) }));
-    }
-    return v.dist > L ? shorten(A, B, L, v, P, ctx, loop) : null;
-  })), []).filter(Boolean));
+    if (!c.el) return v.dist > L ? shorten(A, B, L, v, P, ctx, loop) : null;
+    const acc = c.acc || 0;
+    let de = (L - v.dist) / (FA * clamp(v.dist / c.est, 0.8, 1.6));
+    if (c.prev) { const slope = (v.dist - c.prev.dist) / (acc - c.prev.acc); if (isFinite(slope) && slope > 0.3 && slope < 4) de = (L - v.dist) / slope; }
+    de = clamp(de, c.el.lo, c.el.hi);
+    if (Math.abs(de) < 60) return null;
+    return route(Object.assign({}, c, { stops: withE(c.stops, c.el, de), acc: acc + de, prev: { acc, dist: v.dist }, reg: (c.reg || 0) + 1,
+      el: Object.assign({}, c.el, { lo: c.el.lo - de, hi: c.el.hi - de }) }));
+  };
+  const todo = (list, n) => list.filter((v) => v.combo && !v.lapN && !inBand(v, L, pr) && Math.abs(v.err) < 0.4).sort((a, b) => score(a) - score(b)).slice(0, n);
+  const r1 = settled(await Promise.allSettled(todo(out, 4).map(regulate)), []).filter(Boolean);
+  out.push(...r1);
+  const bestG = out.filter((v) => v.combo).sort((x, y) => score(x) - score(y))[0];
+  if (bestG && !inBand(bestG, L, pr)) out.push(...settled(await Promise.allSettled(todo(r1, 2).map(regulate)), []).filter(Boolean));
   return out;
 }
 // Zu lange Anker-Route: den Anker weglassen, dessen Wegfall der Ziellänge am nächsten kommt
@@ -1083,7 +1090,9 @@ async function compute(again) {
     }
     if (!cands.length) throw new RouteErr(notes[0] || 'Keine Route gefunden.', 'other');
     const vs = pickVariants(cands, L, pr, 3);
-    state.cands = cands.map((v) => ({ name: v.name, dist: Math.round(v.dist), score: Math.round(score(v) * 1000) / 1000, green: !!v.green })); // für Tests
+    state.cands = cands.map((v) => ({ name: v.name, dist: Math.round(v.dist), score: Math.round(score(v) * 1000) / 1000, green: !!v.green, // für Tests
+      est: v.combo && v.combo.est ? Math.round(v.combo.est) : null, reg: v.combo ? v.combo.reg || 0 : 0,
+      kind: v.lapN ? 'lap' : (v.combo ? v.combo.stops.map((s) => s.t).join('-') : 'geo') }));
     vs.forEach((v) => { if (v.combo) state.shownGreen.add(v.combo.key); });
     vs.forEach((v, i) => {
       v.q = quality(v); v.score = score(v); v.colorVar = COLORS[i % COLORS.length];
@@ -1216,6 +1225,15 @@ function tradeText(a, b) {
   if (!parts.length) return 'Kaum Unterschied zu „' + b.name + '“, etwas besser nach deiner Trainingsart.';
   return 'Gegenüber „' + b.name + '“: ' + parts.join(', ') + '. Nach deiner Trainingsart unterm Strich besser.';
 }
+// Alternative außerhalb des Längenbereichs, die nach Bewertung besser ist
+function altText(b, a, L) {
+  const parts = [], dg = b.m.green - a.m.green, ds = (a.m.signals.length + a.m.cross.length) - (b.m.signals.length + b.m.cross.length);
+  if (dg >= 150) parts.push('+' + km1(dg) + ' im Grünen/am Wasser');
+  if ((b.m.greenRun || 0) - (a.m.greenRun || 0) >= 500) parts.push('längeres Stück am Stück im Grünen');
+  if (ds > 0) parts.push(ds + ' Stopp' + (ds === 1 ? '' : 's') + ' weniger');
+  return 'Passt am besten zur Wunschlänge. „' + b.name + '“ ist ' + (b.dist > L ? km1(b.dist - L) + ' länger' : km1(L - b.dist) + ' kürzer') +
+    (parts.length ? ', bietet dafür ' + parts.join(', ') : ', ist laut Profil aber angenehmer') + '.';
+}
 function renderDetail(pace) {
   const v = state.variants[state.sel], pr = PRESETS[settings.preset];
   if (!v) { $('detail').innerHTML = ''; return; }
@@ -1230,7 +1248,10 @@ function renderDetail(pace) {
       (v.m.signals.length + v.m.cross.length === 0 ? ' Ohne Ampel und ohne Querung.' : ' Achtung: ' + (v.m.signals.length + v.m.cross.length) + ' Stopp(s) pro Runde.') +
       (v.lapTo != null ? ' Die Runde beginnt ca. ' + nf0.format(Math.round(v.lapTo / 50) * 50) + ' m Luftlinie vom Start' + (v.lapN > 1 ? '; eine Wiederholung = ' + v.lapN + ' Runden.' : '.') : '') + '</p>';
   }
-  if (state.sel === 0 && state.variants.length > 1 && !state.fromHistory) html += '<p class="trade">' + esc(tradeText(v, state.variants[1])) + '</p>';
+  if (state.sel === 0 && state.variants.length > 1 && !state.fromHistory) {
+    const alt = state.variants.find((x, i) => i > 0 && !inBand(x, state.lastL, pr) && score(x) < score(v));
+    html += '<p class="trade">' + esc(alt && inBand(v, state.lastL, pr) ? altText(alt, v, state.lastL) : tradeText(v, state.variants[1])) + '</p>';
+  }
   const tpk = v.turns != null && km > 0 ? v.turns / km : null;
   html += '<div class="kv">' +
     '<span>Wege im Grünen / am Wasser</span><span>' + km1(v.m.green) + ' (' + Math.round(100 * v.m.green / Math.max(v.dist, 1)) + ' %)</span>' +
