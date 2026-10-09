@@ -83,6 +83,49 @@ def tags(s):
     return dict(t.split("=", 1) for t in (s or "").split() if "=" in t)
 
 
+def shape(coords, rows, dist):
+    """Wendepunkte (Route läuft auf denselben Punkten zurück) und doppelt gelaufene Straßenmeter, wie shape() in app.js.
+    rows: [(ende_m, klasse)] in Metern der Route."""
+    cum = [0.0]
+    for a, b in zip(coords, coords[1:]):
+        cum.append(cum[-1] + hav(a, b))
+    scale = dist / (cum[-1] or 1)
+
+    def cls_at(pos):
+        for end, c in rows:
+            if pos <= end:
+                return c
+        return rows[-1][1] if rows else "street"
+    key = lambda c: (round(c[0], 6), round(c[1], 6))  # noqa: E731
+    idx = [0]
+    for i in range(1, len(coords)):
+        if key(coords[i]) != key(coords[idx[-1]]):
+            idx.append(i)
+    revs, m = [], 1
+    while m < len(idx) - 1:
+        j = 0
+        while m - j - 1 >= 0 and m + j + 1 < len(idx) and key(coords[idx[m - j - 1]]) == key(coords[idx[m + j + 1]]):
+            j += 1
+        if j:
+            at, arm = cum[idx[m]] * scale, (cum[idx[m]] - cum[idx[m - j]]) * scale
+            revs.append({"at": round(at), "arm": round(arm), "street": cls_at(at - arm / 2) not in ("green", "path")})
+            m += j
+        m += 1
+    seen, dbl, s, i = {}, 0, 0.0, 0
+    while s < cum[-1]:
+        while i < len(cum) - 2 and cum[i + 1] < s:
+            i += 1
+        t = (s - cum[i]) / ((cum[i + 1] - cum[i]) or 1)
+        lon, lat = coords[i][0] + t * (coords[i + 1][0] - coords[i][0]), coords[i][1] + t * (coords[i + 1][1] - coords[i][1])
+        k = (round(lat * 3600), round(lon * 2200))
+        if k not in seen:
+            seen[k] = s
+        elif (s - seen[k]) * scale > 200 and cls_at(s * scale) not in ("green", "path"):
+            dbl += 20
+        s += 20 / scale
+    return revs, dbl
+
+
 def evaluate(feature):
     p = feature["properties"]
     coords = feature["geometry"]["coordinates"]
@@ -91,8 +134,9 @@ def evaluate(feature):
     h = msgs[0] if msgs else []
     col = lambda name, d: h.index(name) if name in h else d  # noqa: E731
     i_dist, i_way, i_node = col("Distance", 3), col("WayTags", 9), col("NodeTags", 10)
-    tot = green = street = big = sidewalk = route = 0.0
+    tot = green = street = big = sidewalk = route = run = gap = green_run = 0.0
     signals = crossings = 0
+    rows = []
     for row in msgs[1:]:
         d = float(row[i_dist] or 0)
         w, nd = tags(row[i_way]), tags(row[i_node])
@@ -100,6 +144,17 @@ def evaluate(feature):
         hw, fw = w.get("highway", ""), w.get("footway", "")
         trail = hw in TRAIL and fw not in ("sidewalk", "crossing")
         cls = max(int(w.get("estimated_forest_class", 0) or 0), int(w.get("estimated_river_class", 0) or 0))
+        kind = "green" if trail and cls >= 3 else ("path" if trail else ("sidewalk" if fw in ("sidewalk", "crossing") else
+                                                                         ("big" if BIG.match(hw) else "street")))
+        rows.append([tot, kind])
+        if kind == "green":  # längstes Stück im Grünen, Lücken bis 60 m zählen mit
+            run += gap + d
+            gap = 0.0
+            green_run = max(green_run, run)
+        else:
+            gap += d
+            if gap > 60:
+                run = gap = 0.0
         if trail and cls >= 3:
             green += d
         if not trail:
@@ -116,12 +171,16 @@ def evaluate(feature):
             crossings += 1
     tot = tot or 1
     km = max(dist / 1000, 0.1)
+    rows = [(e * dist / tot, k) for e, k in rows]
+    revs, dbl = shape(coords, rows, dist)
     return {
         "dist": round(dist), "cost_per_m": round(float(p["cost"]) / max(dist, 1), 3),
         "green": round(green / tot, 3), "street": round(street / tot, 3), "sidewalk": round(sidewalk / tot, 3),
         "big": round(big / tot, 3), "route": round(route / tot, 3),
         "signals_km": round(signals / km, 2), "crossings_km": round(crossings / km, 2),
         "turns_km": round(turns_per_km(coords, dist), 2), "spurs": spurs(coords), "coords": coords,
+        "green_run": round(green_run * dist / tot), "street_revs": sum(1 for r in revs if r["street"]), "dbl_street": dbl,
+        "rows": [[round(e), k] for e, k in rows],
     }
 
 
@@ -242,7 +301,7 @@ def run_app(pw, app_url, brouter, cases, places, mess_pid):
             m = evaluate(g) if g is not None and abs(abw) <= 0.05 else dict(orig)
             m["mess"] = "neutral" if g is not None and abs(abw) <= 0.05 else "original"
             m["mess_abw"] = round(abw, 3) if abw is not None else None
-            for k in ("dist", "cost_per_m", "turns_km", "spurs"):  # Geometrie immer von der Originalroute
+            for k in ("dist", "cost_per_m", "turns_km", "spurs", "street_revs", "dbl_street", "rows"):  # Geometrie immer von der Originalroute
                 m[k] = orig[k]
             m["coords"] = orig["coords"]
             m["name"] = v["name"]
@@ -253,7 +312,9 @@ def run_app(pw, app_url, brouter, cases, places, mess_pid):
                 pl = geocode(places, a, c["city"], area=True)
                 if pl:
                     m["areas"][a] = round(length_in_box(m["coords"], pl["box"]))
-            del m["coords"]
+            res.setdefault("routes", []).append({"name": v["name"], "coords": [[round(c[0], 5), round(c[1], 5)] for c in m["coords"]],
+                                                 "rows": m["rows"]})
+            del m["coords"], m["rows"]
             res["variants"].append(m)
         res["ok"] = bool(res["variants"])
         out.append(res)
@@ -266,21 +327,23 @@ def summarize(results, cases):
     by_id = {c["id"]: c for c in cases}
     agg = {"cases": 0, "ok": 0, "green": 0.0, "street": 0.0, "sidewalk": 0.0, "signals_km": 0.0, "crossings_km": 0.0,
            "turns_km": 0.0, "spurs": 0, "in_band": 0, "area_hits": 0, "area_total": 0, "requests": 0, "seconds": 0.0,
-           "best_green": 0.0, "mess_max": 0.0, "green_first": 0, "mess_orig": 0}
+           "best_green": 0.0, "mess_max": 0.0, "green_first": 0, "mess_orig": 0, "green_run": 0.0, "street_revs": 0, "dbl_street": 0.0}
     for r in results:
         agg["cases"] += 1
         if not r.get("ok"):
             continue
         c, v = by_id[r["id"]], r["variants"][0]
         agg["ok"] += 1
-        for k in ("green", "street", "sidewalk", "signals_km", "crossings_km", "turns_km"):
-            agg[k] += v[k]
+        for k in ("green", "street", "sidewalk", "signals_km", "crossings_km", "turns_km", "green_run", "dbl_street"):
+            agg[k] += v.get(k, 0)
+        agg["street_revs"] += sum(x.get("street_revs", 0) for x in r["variants"])
         agg["best_green"] += max(x["green"] for x in r["variants"])
         agg["spurs"] += sum(x["spurs"] for x in r["variants"])
         agg["green_first"] += int(v.get("src") == "grün")
         agg["mess_orig"] += sum(1 for x in r["variants"] if x.get("mess") == "original")
         target = c["lap"] if c.get("lap") else c["km"] * 1000
         band = r.get("band") or (target * 0.15 if c["preset"] == "intervall" else (target * 0.02 if c["preset"] == "wettkampf" else max(500, target * 0.1)))
+        band = min(band, max(250, target * 0.05)) if c["preset"] not in ("intervall", "wettkampf", "recovery") else band  # einheitlich ±5 %
         agg["in_band"] += int(any(abs(x["dev"]) <= band for x in r["variants"]))
         for a in c.get("expect", []):
             agg["area_total"] += 1
@@ -288,7 +351,7 @@ def summarize(results, cases):
         agg["requests"] += r.get("requests", 0)
         agg["seconds"] += r.get("seconds", 0)
     n = max(agg["ok"], 1)
-    for k in ("green", "street", "sidewalk", "signals_km", "crossings_km", "turns_km", "requests", "seconds", "best_green"):
+    for k in ("green", "street", "sidewalk", "signals_km", "crossings_km", "turns_km", "requests", "seconds", "best_green", "green_run", "dbl_street"):
         agg[k] = round(agg[k] / n, 3)
     return agg
 
@@ -304,7 +367,10 @@ def report(all_results, cases, out_dir):
             ("… beste der 3 Varianten", lambda s: pct(s["best_green"])), ("Straßen und Gehwege", lambda s: pct(s["street"])),
             ("davon Gehweg an Straße", lambda s: pct(s["sidewalk"])), ("Ampeln pro km", lambda s: s["signals_km"]),
             ("Querungen ohne Ampel pro km", lambda s: s["crossings_km"]), ("Abbiegungen pro km", lambda s: s["turns_km"]),
-            ("Stichwege (alle Varianten)", lambda s: s["spurs"]), ("Länge im Bereich", lambda s: f"{s['in_band']}/{s['ok']}"),
+            ("Längstes Stück im Grünen (km)", lambda s: round(s["green_run"] / 1000, 2)),
+            ("Straße doppelt gelaufen (m)", lambda s: round(s["dbl_street"])),
+            ("Wenden auf Straßen (alle Varianten)", lambda s: s["street_revs"]),
+            ("Stichwege (alle Varianten)", lambda s: s["spurs"]), ("Länge im Bereich ±5 %", lambda s: f"{s['in_band']}/{s['ok']}"),
             ("Erwartete Grünflächen genutzt", lambda s: f"{s['area_hits']}/{s['area_total']}"),
             ("Empfehlung über Grünflächen-Anker", lambda s: f"{s['green_first']}/{s['ok']}"),
             ("Varianten ohne neutrale Nachmessung", lambda s: s["mess_orig"]),
@@ -320,21 +386,26 @@ def report(all_results, cases, out_dir):
             if r and r.get("notes"):
                 lines.append(f"Hinweise {n}: " + " · ".join(r["notes"]))
         lines.append("")
-        lines.append("| Version | Variante | Länge | Abw. | Grün | Straße | Gehweg | Ampeln/km | ohne Ampel/km | Abb./km | Grünflächen (m) | Messung |")
-        lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|")
+        lines += [f"![Karte {c['id']}](maps/{c['id']}.png)", ""]  # erzeugt von bench/maps.py
+        lines.append("| Version | Variante | Länge | Abw. | Grün | am Stück | Straße | Gehweg | Ampeln/km | ohne Ampel/km | Abb./km | Wenden Str. | Str. doppelt | Grünflächen (m) | Messung |")
+        lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
         for n in names:
             r = next((x for x in all_results[n] if x["id"] == c["id"]), None)
             if not r or not r.get("ok"):
-                lines.append(f"| {n} | Fehler: {(r or {}).get('error') or (r or {}).get('status', '?')} | | | | | | | | | | |")
+                lines.append(f"| {n} | Fehler: {(r or {}).get('error') or (r or {}).get('status', '?')} | | | | | | | | | | | | | |")
                 continue
             for v in r["variants"]:
                 areas = ", ".join(f"{k}: {val}" for k, val in v["areas"].items()) or "–"
-                lines.append(f"| {n} | {v['name']} | {v['dist']} | {v['dev']:+d} | {pct(v['green'])} | {pct(v['street'])} | "
-                             f"{pct(v['sidewalk'])} | {v['signals_km']} | {v['crossings_km']} | {v['turns_km']} | {areas} | {v.get('mess', '')} |")
+                lines.append(f"| {n} | {v['name']} | {v['dist']} | {v['dev']:+d} | {pct(v['green'])} | {v.get('green_run', 0) / 1000:.1f} km | "
+                             f"{pct(v['street'])} | {pct(v['sidewalk'])} | {v['signals_km']} | {v['crossings_km']} | {v['turns_km']} | "
+                             f"{v.get('street_revs', 0)} | {v.get('dbl_street', 0)} m | {areas} | {v.get('mess', '')} |")
         lines.append("")
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "report.md"), "w") as f:
         f.write("\n".join(lines) + "\n")
+    routes = {n: {r["id"]: r.pop("routes", []) for r in rs} for n, rs in all_results.items()}
+    with open(os.path.join(out_dir, "routes.json"), "w") as f:
+        json.dump({"cases": cases, "routes": routes}, f, ensure_ascii=False, separators=(",", ":"))
     with open(os.path.join(out_dir, "results.json"), "w") as f:
         json.dump({"summary": sums, "results": all_results}, f, ensure_ascii=False, indent=1)
     print("\n".join(lines[:22]))

@@ -11,7 +11,7 @@ on:
     inputs:
       baseline:
         description: "Vergleichsversionen (Commits oder Tags, durch Leerzeichen getrennt)"
-        default: "3aa0e38 17956d0"
+        default: "5787162 3aa0e38"
       only:
         description: "Nur Fälle, deren id diesen Text enthält (leer = alle)"
         default: ""
@@ -24,7 +24,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  BASELINES: ${{ inputs.baseline || '3aa0e38 17956d0' }}
+  BASELINES: ${{ inputs.baseline || '5787162 3aa0e38' }}
   BROUTER_HOME: /home/runner/brouter
 
 jobs:
@@ -68,10 +68,31 @@ jobs:
           path: ${{ env.BROUTER_HOME }}
           key: brouter-1.7.10-${{ steps.month.outputs.m }}
 
-      - name: Playwright installieren
+      - name: Playwright, osmium und matplotlib installieren
         run: |
-          pip install --quiet playwright
+          pip install --quiet playwright matplotlib pillow
           python -m playwright install --with-deps chromium
+          sudo apt-get install -y -qq osmium-tool > /dev/null
+
+      - name: OpenStreetMap-Extrakte für die Karten aus dem Cache
+        id: osmcache
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/osm
+          key: osm-${{ steps.month.outputs.m }}
+
+      - name: OpenStreetMap-Extrakte laden
+        if: steps.osmcache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /home/runner/osm
+          python - <<'PY'
+          import json, os, urllib.request
+          for r in json.load(open("data/regions.json")):
+              path = os.path.join("/home/runner/osm", os.path.basename(r["pbf"]))
+              req = urllib.request.Request(r["pbf"], headers={"User-Agent": "laufrouten-benchmark"})
+              with urllib.request.urlopen(req, timeout=600) as resp, open(path, "wb") as fh:
+                  fh.write(resp.read())
+          PY
 
       - name: App-Versionen ausliefern
         run: |
@@ -91,6 +112,10 @@ jobs:
           mapfile -t APPS < ../apps.txt
           python bench/run.py --brouter http://localhost:17777 --app neu=http://localhost:8765/ "${APPS[@]}" \
             ${ONLY:+--only "$ONLY"} --out bench-out
+
+      - name: Karten
+        continue-on-error: true
+        run: python bench/maps.py --routes bench-out/routes.json --osm /home/runner/osm --green data/green --out bench-out/maps
 
       - name: Protokolle sammeln
         if: always()
@@ -112,7 +137,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}"
           if git fetch -q --depth 1 origin bench-results; then git checkout -q -b bench-results FETCH_HEAD; else git checkout -q --orphan bench-results; fi
-          mkdir -p "runs/$RUN" && cp -r "$GITHUB_WORKSPACE/bench-out/." "runs/$RUN/"
+          mkdir -p "runs/$RUN" && cp -r "$GITHUB_WORKSPACE/bench-out/." "runs/$RUN/" && rm -rf "runs/$RUN/maps" "runs/$RUN/routes.json"  # Karten nur in latest/
           rm -rf latest && mkdir latest && cp -r "$GITHUB_WORKSPACE/bench-out/." latest/
           git add -A
           git commit -q -m "Benchmark $RUN"

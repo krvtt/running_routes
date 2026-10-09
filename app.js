@@ -4,7 +4,7 @@
 'use strict';
 if (!window.L) { document.getElementById('status').textContent = 'Kartenbibliothek nicht geladen – Seite neu laden.'; return; }
 
-const APP_VERSION = '2.6.0';
+const APP_VERSION = '2.7.0';
 const PROFILE_URL = 'profiles/laufen.brf';
 const DEFAULT_SERVER = 'https://brouter.de';
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
@@ -23,22 +23,22 @@ const PRESETS = {
   dauer: { name: 'Lockerer Dauerlauf', km: 8, paceOff: 0, tol: 0.05, points: 5,
     hint: 'Grundlage, der Großteil deiner Kilometer. Viel Grün; eine Ampel ist okay, wenn sie Park oder Ufer erschließt.',
     p: { green_pref: 0.7, road_base: 1.8, big_road: 1.0, noise_weight: 0.4, route_bonus: 0.15, signal_cost: 100, crossing_unit: 25, zebra_cost: 20, turn_cost: 5, steps_factor: 3, paved_pref: 0 } },
-  lang: { name: 'Langer Lauf', km: 16, paceOff: 15, tol: 0.06, points: 6,
+  lang: { name: 'Langer Lauf', km: 16, paceOff: 15, tol: 0.05, points: 6,
     hint: 'Ausdauer. Große Schleife, wenig Stopps und Kurven, gern am Wasser. Die Strecke soll man sich merken können.',
     p: { green_pref: 0.7, road_base: 1.8, big_road: 1.2, noise_weight: 0.4, route_bonus: 0.2, signal_cost: 150, crossing_unit: 35, zebra_cost: 30, turn_cost: 10, steps_factor: 3, paved_pref: 0 } },
   recovery: { name: 'Recovery', km: 5, paceOff: 40, tol: 0.15, points: 4,
     hint: 'Erholung. Kurz, weich, ruhig, nah am Start. Die genaue Länge ist Nebensache.',
     p: { green_pref: 1.0, road_base: 2.0, big_road: 1.5, noise_weight: 0.6, route_bonus: 0.1, signal_cost: 80, crossing_unit: 30, zebra_cost: 20, turn_cost: 0, steps_factor: 5, paved_pref: -1 } },
-  tempo: { name: 'Tempodauerlauf', km: 8, paceOff: -25, tol: 0.06, points: 5,
+  tempo: { name: 'Tempodauerlauf', km: 8, paceOff: -25, tol: 0.05, points: 5,
     hint: 'Schwelle. Möglichst ohne Stopp, glatter Belag, wenig Kurven. Je ca. 1,5 km Ein- und Auslaufen einplanen; die Tempophase aufs längste Stück ohne Querung legen.',
     p: { green_pref: 0.4, road_base: 1.6, big_road: 1.0, noise_weight: 0.3, route_bonus: 0.05, signal_cost: 250, crossing_unit: 50, zebra_cost: 60, turn_cost: 15, steps_factor: 20, paved_pref: 1 } },
   intervall: { name: 'Intervalle', lap: true, strict: true, paceOff: -45, tol: 0.15, points: 4,
-    hint: 'Runde ohne Querung für Wiederholungen. Setz den Start auf die Stelle, an der die Runde liegen soll (z. B. im Park).',
+    hint: 'Runde ohne Querung für Wiederholungen, bevorzugt um einen Park oder See in der Nähe. Ohne passenden Park entsteht die Runde am Start.',
     p: { green_pref: 0.6, road_base: 2.0, big_road: 1.5, noise_weight: 0.3, route_bonus: 0, signal_cost: 500, crossing_unit: 100, zebra_cost: 200, turn_cost: 5, steps_factor: 30, paved_pref: 0.5 } },
   wettkampf: { name: 'Wettkampf-Simulation', km: 10, strict: true, paceOff: -40, tol: 0.02, points: 6,
     hint: 'Renn-Generalprobe. Exakte Distanz, Asphalt, keine Stopps, wenige Kurven. Start = Ziel empfohlen.',
     p: { green_pref: 0.3, road_base: 1.6, big_road: 1.0, noise_weight: 0.2, route_bonus: 0, signal_cost: 300, crossing_unit: 60, zebra_cost: 80, turn_cost: 15, steps_factor: 30, paved_pref: 1 } },
-  fahrtspiel: { name: 'Fahrtspiel', km: 8, paceOff: 0, tol: 0.06, points: 5,
+  fahrtspiel: { name: 'Fahrtspiel', km: 8, paceOff: 0, tol: 0.05, points: 5,
     hint: 'Spielerisch. Abwechslungsreicher Belag, Stopps sind egal, Tempo nach Gefühl.',
     p: { green_pref: 0.8, road_base: 1.8, big_road: 0.8, noise_weight: 0.3, route_bonus: 0.1, signal_cost: 50, crossing_unit: 20, zebra_cost: 10, turn_cost: 0, steps_factor: 1.5, paved_pref: -0.5 } }
 };
@@ -304,22 +304,26 @@ function parseRoute(gj) {
   const dist = Number(p['track-length']) || polyLen(coords.map((c) => ({ lat: c[1], lon: c[0] })));
   const v = { coords, dist, cost: Number(p.cost) || dist * 2, up: Number(p['filtered ascend']) || 0, turns: countTurns(coords) };
   v.m = metrics(p.messages, dist);
+  shape(v);
   return v;
 }
 function metrics(msgs, dist) {
-  const m = { green: 0, street: 0, big: 0, surf: { asph: 0, paved: 0, unp: 0, unk: 0 }, way: {}, signals: [], zebras: [], cross: [], tot: 0, ok: false };
+  const m = { green: 0, street: 0, big: 0, greenRun: 0, surf: { asph: 0, paved: 0, unp: 0, unk: 0 }, way: {}, signals: [], zebras: [], cross: [], segs: [], tot: 0, ok: false };
   if (!Array.isArray(msgs) || msgs.length < 2) return m;
   const h = msgs[0], col = (n, d) => { const i = h.indexOf(n); return i >= 0 ? i : d; };
   const iLon = col('Longitude', 0), iLat = col('Latitude', 1), iDist = col('Distance', 3), iWay = col('WayTags', 9), iNode = col('NodeTags', 10);
-  let pos = 0;
+  let pos = 0, run = 0, gap = 0;
   msgs.slice(1).forEach((row) => {
     const d = Number(row[iDist]) || 0; pos += d; m.tot += d;
     const w = parseTags(row[iWay]), n = parseTags(row[iNode]);
     const hw = w.highway || '', g = wayGroup(hw, w.footway);
     // Grün zählt nur auf Wegen (nicht auf Straßen oder Gehwegen am Parkrand)
     const trail = g === 'Park-/Feldweg' || g === 'Fußweg';
-    if (trail && Math.max(Number(w.estimated_forest_class || 0), Number(w.estimated_river_class || 0)) >= 3) m.green += d;
+    const green = trail && Math.max(Number(w.estimated_forest_class || 0), Number(w.estimated_river_class || 0)) >= 3;
+    if (green) { m.green += d; run += gap + d; gap = 0; m.greenRun = Math.max(m.greenRun, run); } // längstes Stück im Grünen,
+    else if ((gap += d) > 60) { run = 0; gap = 0; }                                                // Lücken bis 60 m zählen mit
     if (!trail) m.street += d;
+    m.segs.push([pos, trail]);
     if (/^(primary|secondary|trunk)(_link)?$/.test(hw)) m.big += d;
     m.surf[surfGroup(w.surface)] += d;
     m.way[g] = (m.way[g] || 0) + d;
@@ -331,8 +335,39 @@ function metrics(msgs, dist) {
   m.signals = dedupe(m.signals, 40); m.zebras = dedupe(m.zebras, 25); m.cross = dedupe(m.cross, 25);
   m.ok = m.tot > 0;
   const scale = m.tot > 0 ? dist / m.tot : 1; // auf Gesamtlänge normieren
-  m.green *= scale; m.big *= scale; m.street *= scale;
+  m.green *= scale; m.big *= scale; m.street *= scale; m.greenRun *= scale;
+  m.segs.forEach((s) => { s[0] *= scale; });
   return m;
+}
+// Form der Route: Wendepunkte (die Route läuft auf denselben Punkten zurück) und doppelt gelaufene Straßen.
+// Wenden auf Straßen kosten viel, im Park wenig; lange gerade Hin-und-zurück-Strecken nur mäßig.
+function shape(v) {
+  const segs = v.m.segs, trailAt = (pos) => {
+    if (!segs.length) return false;
+    let lo = 0, hi = segs.length - 1;
+    while (lo < hi) { const md = (lo + hi) >> 1; if (segs[md][0] < pos) lo = md + 1; else hi = md; }
+    return segs[lo][1];
+  };
+  const cum = cumOf(v), scale = v.dist / (cum[cum.length - 1] || 1), key = (c) => c[0].toFixed(6) + ',' + c[1].toFixed(6);
+  const idx = [0];
+  for (let i = 1; i < v.coords.length; i++) if (key(v.coords[i]) !== key(v.coords[idx[idx.length - 1]])) idx.push(i);
+  const revs = [];
+  for (let m = 1; m < idx.length - 1; m++) {
+    let j = 0;
+    while (m - j - 1 >= 0 && m + j + 1 < idx.length && key(v.coords[idx[m - j - 1]]) === key(v.coords[idx[m + j + 1]])) j++;
+    if (!j) continue;
+    const at = cum[idx[m]] * scale, arm = (cum[idx[m]] - cum[idx[m - j]]) * scale;
+    revs.push({ at, arm, street: !trailAt(at - arm / 2) });
+    m += j;
+  }
+  let dbl = 0;
+  const seen = new Map();
+  for (let s = 0; s < v.dist; s += 20) {
+    const p = pointAt(v, s), k = Math.round(p[0] * 3600) + ':' + Math.round(p[1] * 2200), f = seen.get(k);
+    if (f == null) seen.set(k, s); else if (s - f > 200 && !trailAt(s)) dbl += 20;
+  }
+  v.revs = revs; v.dblStreet = dbl;
+  v.pen = revs.reduce((s, r) => s + (r.street ? 400 + 2 * r.arm : 60 + 0.3 * r.arm), 0) + 0.6 * dbl;
 }
 // Abbiegungen aus der Geometrie: Richtungswechsel > 50° zwischen Abschnitten ≥ 12 m, Wechsel innerhalb 25 m zählen einmal
 function countTurns(coords) {
@@ -347,19 +382,24 @@ function countTurns(coords) {
   return turns;
 }
 function dedupe(arr, gap) { const out = []; arr.forEach((x) => { const l = out[out.length - 1]; if (!l || x.pos - l.pos > gap) out.push(x); }); return out; }
-function quality(v) { return clamp(Math.round(100 * v.dist / Math.max(v.cost, v.dist)), 0, 100); }
+function quality(v) { return clamp(Math.round(100 * v.dist / Math.max(v.cost + (v.pen || 0), v.dist)), 0, 100); }
 
 // ---------- Länge und Auswahl ----------
-// Längenbereich: Wettkampf und Intervalle eng, sonst Toleranz der Trainingsart, mindestens ±500 m.
-function band(L, pr) { return pr.strict ? pr.tol * L : Math.max(pr.tol * L, 500); }
+// Längenbereich: Toleranz der Trainingsart (±5 %, Recovery ±15 %, mind. ±250 m); bis zur doppelten Toleranz
+// gibt es nachrangige Alternativen. Wettkampf und Intervalle bleiben eng.
+function band(L, pr) { return pr.strict ? pr.tol * L : Math.max(pr.tol * L, 250); }
+function band2(L, pr) { return pr.strict ? band(L, pr) : 2 * band(L, pr); }
 function inBand(v, L, pr) { return Math.abs(v.dist - L) <= band(L, pr); }
-// Erst Routen im Längenbereich, darunter die mit den geringsten Kosten pro Meter (Grün, Wasser, Ruhe, wenig Stopps);
-// außerhalb des Bereichs zählt die Nähe zur Wunschlänge.
+// Bewertung (kleiner = besser): Routing-Kosten pro Meter (Grün, Wasser, Ruhe, wenig Stopps) plus Abzug für
+// Wendepunkte und doppelt gelaufene Straßen
+function score(v) { return (v.cost + (v.pen || 0)) / v.dist; }
+// Erst Routen im Längenbereich, dann bis zur doppelten Toleranz, jeweils nach Bewertung; danach Nähe zur Wunschlänge.
 function rank(vs, L, pr) {
+  const tier = (v) => (inBand(v, L, pr) ? 0 : (Math.abs(v.dist - L) <= band2(L, pr) ? 1 : 2));
   return vs.slice().sort((a, b) => {
-    const ia = inBand(a, L, pr), ib = inBand(b, L, pr);
-    if (ia !== ib) return ia ? -1 : 1;
-    return ia ? a.cost / a.dist - b.cost / b.dist : Math.abs(a.dist - L) - Math.abs(b.dist - L);
+    const ta = tier(a), tb = tier(b);
+    if (ta !== tb) return ta - tb;
+    return ta < 2 ? score(a) - score(b) : Math.abs(a.dist - L) - Math.abs(b.dist - L);
   });
 }
 // Anteil von a, der auf Wegen von b liegt (Raster ~30 m) – um fast gleiche Varianten auszusortieren
@@ -473,10 +513,11 @@ function updateCalc() {
   $('calcOut').textContent = L ? '= ' + km1(L) + ' · ' + fmtDur(L / 1000 * pace) + ' bei ' + fmtPace(pace) + ' min/km' : '';
 }
 
-// ---------- Grünflächen aus OpenStreetMap (Overpass), je Kachel 30 Tage im Gerät ----------
-// Parks, Wälder, Kleingärten, Wiesen, Gewässer und Kanäle werden zu „Ankern“: Punkte in Grünflächen
-// und an Ufern. Kandidaten-Routen führen über 1–3 Anker; den Weg dazwischen wählt BRouter mit dem
-// Laufprofil, das Wege im Grünen bevorzugt. Ohne Daten bleibt es bei den geometrischen Kandidaten.
+// ---------- Grünflächen aus OpenStreetMap ----------
+// Parks, Wälder, Kleingärten, Wiesen, Gewässer und Kanäle werden zu „Ankern“ (Punkte in Grünflächen und an
+// Ufern) und zu Parkrunden (Umriss auf die Wege eingerastet). Vorberechnet für die Regionen in data/regions.json,
+// anderswo von Overpass (je Kachel 30 Tage im Gerät). Den Weg zwischen den Stützpunkten wählt BRouter mit dem
+// Laufprofil. Ohne Daten bleibt es bei den geometrischen Kandidaten.
 const OVERPASS = ['https://overpass-api.de/api/interpreter', 'https://overpass.private.coffee/api/interpreter'];
 const GT = { lat: 0.05, lon: 0.08 }, GREEN_TTL = 30 * 864e5, GREEN_VER = 1;
 const llp = (c) => ({ lat: c[1], lon: c[0] });
@@ -541,7 +582,7 @@ async function loadGreen(bb, budgetMs) {
   const cy = (bb.s + bb.n) / 2 / GT.lat, cx = (bb.w + bb.e) / 2 / GT.lon;
   keys.sort((a, b) => Math.hypot(a[0] + 0.5 - cy, a[1] + 0.5 - cx) - Math.hypot(b[0] + 0.5 - cy, b[1] + 0.5 - cx));
   const index = await greenIndexGet();
-  const feats = new Map(), pre = [], res = { failed: 0, missing: 0, overpass: 0 };
+  const feats = new Map(), pre = [], rings = [], res = { failed: 0, missing: 0, overpass: 0 };
   const todo = [];
   await Promise.all(keys.slice(0, 9).map(async ([y, x]) => {
     if (index.has(y + '_' + x)) {
@@ -549,6 +590,7 @@ async function loadGreen(bb, budgetMs) {
         const r = await fetchT(GREEN_DATA + y + '_' + x + '.json', {}, 10000);
         const j = await r.json();
         j.a.forEach((a) => pre.push({ lon: a[0], lat: a[1], v: a[2], fid: j.f[a[3]][0], name: j.f[a[3]][1] }));
+        (j.r || []).forEach((r) => rings.push(decodeRing(r, j.f)));
         return;
       } catch (e) { /* weiter mit Overpass */ }
     }
@@ -571,6 +613,7 @@ async function loadGreen(bb, budgetMs) {
   res.missing = todo.length - done.size;
   res.feats = Array.from(feats.values());
   res.pre = pre;
+  res.rings = rings;
   return res;
 }
 
@@ -654,113 +697,304 @@ function bboxArea(lines) {
   return Math.max(0, (n - s) * (e - w));
 }
 
-// Kombinationen aus 1–3 Ankern, deren geschätzte Länge passt; Wert = Grünflächen (jede einmal) und Vielfalt
-function greenCombos(B, L, anchors, f, loop, skip) {
-  const b = loop ? { x: 0, y: 0 } : B, ab = Math.hypot(b.x, b.y) || 1;
-  const Lg = L / f;
-  let cand = anchors.filter((a) => {
-    const d1 = Math.hypot(a.q.x, a.q.y), d2 = Math.hypot(a.q.x - b.x, a.q.y - b.y);
-    return d1 > 150 && d2 > 150 && (loop ? 2 * d1 : d1 + d2) <= Lg * 1.05;
+// ---------- Parkrunden ----------
+// Eine Parkrunde ist der Umriss einer Grünfläche oder eines Sees, auf die echten Wege eingerastet
+// (vorberechnet, siehe tools/green_anchors.py; außerhalb der Regionen grob aus dem Umriss).
+// Kandidaten laufen Bögen oder ganze Runden darauf; die Bogenlänge ist die Stellschraube für die Länge.
+const FA = 1.05; // Bogenlänge → gelaufene Meter
+const mod = (a, n) => ((a % n) + n) % n;
+const dxy = (p, q) => Math.hypot(q.x - p.x, q.y - p.y);
+// Grobe Parkrunden aus Overpass-Umrissen: Umriss 15 m nach innen (Park) bzw. 20 m nach außen (See)
+function loopsFromFeats(feats, P) {
+  const out = [];
+  feats.forEach((F) => {
+    if (F.kind === 'line') return;
+    F.lines.forEach((l, li) => {
+      let r = l.map((c) => P.to(llp(c)));
+      if (r.length < 4 || dxy(r[0], r[r.length - 1]) > 40) return;
+      r = r.slice(0, -1);
+      const area = Math.abs(shoelace(r)), per = polyLenXY(r.concat([r[0]]));
+      if (area < (F.kind === 'water' ? 10000 : 5000) || per > 15000 || 4 * Math.PI * area / (per * per) < (F.kind === 'water' ? 0.08 : 0.04)) return;
+      if (shoelace(r) < 0) r = r.reverse();
+      const k = F.kind === 'water' ? -20 : 15, n = r.length;
+      const pts = r.map((p, i) => {
+        const a = r[(i + n - 1) % n], b = r[(i + 1) % n], d = dxy(a, b) || 1;
+        return Object.assign(P.from({ x: p.x - (b.y - a.y) / d * k, y: p.y + (b.x - a.x) / d * k }), { on: false });
+      });
+      out.push({ fid: F.id + (li ? ':' + li : ''), name: F.name, water: F.kind === 'water', cov: 0.5, pts });
+    });
   });
-  cand.sort((p, q) => q.v - p.v);
-  cand = cand.slice(0, 28);
+  return out;
+}
+function decodeRing(r, f) {
+  const pts = [];
+  let x = 0, y = 0;
+  for (let i = 0; i + 1 < r[5].length; i += 2) { x += r[5][i]; y += r[5][i + 1]; pts.push({ lon: x / 1e5, lat: y / 1e5, on: r[6] ? r[6][i / 2] === '1' : true }); }
+  return { fid: f[r[0]][0], name: f[r[0]][1], cov: r[2], water: r[3] === 1, ha: r[4], pts };
+}
+function prepRing(K, P) {
+  const xy = K.pts.map((p) => Object.assign(P.to(p), { on: p.on }));
+  if (xy.length > 2 && dxy(xy[0], xy[xy.length - 1]) < 1) xy.pop();
+  if (xy.length < 3) return null;
+  const cum = [0];
+  for (let i = 1; i < xy.length; i++) cum.push(cum[i - 1] + dxy(xy[i - 1], xy[i]));
+  const len = cum[cum.length - 1] + dxy(xy[xy.length - 1], xy[0]);
+  return Object.assign({}, K, { xy, cum, len, c: centroidOf(xy) });
+}
+function ringAt(R, s) {
+  s = mod(s, R.len);
+  let lo = 0, hi = R.xy.length;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (R.cum[m] <= s) lo = m; else hi = m; }
+  const a = R.xy[lo], b = R.xy[(lo + 1) % R.xy.length], seg = ((lo + 1 < R.xy.length ? R.cum[lo + 1] : R.len) - R.cum[lo]) || 1, t = (s - R.cum[lo]) / seg;
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+function ringNear(R, p) {
+  let best = { d: Infinity, s: 0 };
+  const n = R.xy.length;
+  for (let i = 0; i < n; i++) {
+    const a = R.xy[i], b = R.xy[(i + 1) % n], dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+    const t = l2 ? clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / l2, 0, 1) : 0;
+    const d = Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+    if (d < best.d) best = { d, s: R.cum[i] + t * Math.sqrt(l2) };
+  }
+  return best;
+}
+// Stützpunkt bei Bogenposition s: nächster Umrisspunkt, der auf einem Weg liegt (höchstens tol entfernt)
+function ringVia(R, s, tol) {
+  s = mod(s, R.len);
+  let best = null, bd = tol;
+  R.xy.forEach((p, i) => { if (!p.on) return; let d = Math.abs(R.cum[i] - s); d = Math.min(d, R.len - d); if (d < bd) { bd = d; best = p; } });
+  return best ? { x: best.x, y: best.y } : ringAt(R, s);
+}
+function arcPts(R, s1, len, dir) {
+  const n = Math.max(2, Math.ceil(len / clamp(R.len / 12, 120, 300))), tol = Math.min(70, len / n / 3), out = []; // dicht genug, damit BRouter nicht quer durch den Park abkürzt
+  for (let i = 0; i <= n; i++) {
+    const q = ringVia(R, s1 + dir * len * i / n, tol), l = out[out.length - 1];
+    if (!l || dxy(l, q) > 40) out.push(q);
+  }
+  return out;
+}
+
+// ---------- Kandidaten aus Ankern und Parkrunden ----------
+// Ein Kandidat ist eine Folge von Stopps: Anker {t:'pt'} oder Bogen {t:'arc', R, s1, len, dir}.
+const O = { x: 0, y: 0 };
+const stopIn = (st) => (st.t === 'pt' ? st.q : ringAt(st.R, st.s1));
+const stopOut = (st) => (st.t === 'pt' ? st.q : ringAt(st.R, st.s1 + st.dir * st.len));
+function estimate(stops, Bq, f) {
+  let prev = O, geo = 0, arc = 0;
+  stops.forEach((st) => { geo += dxy(prev, stopIn(st)); if (st.t === 'arc') arc += st.len; prev = stopOut(st); });
+  geo += dxy(prev, Bq);
+  return { est: geo * f + arc * FA, geo, arc };
+}
+// Elastischer Bogen k: 'both' verlängert an beiden Enden, 'end' nur am Ende
+function withE(stops, el, e) {
+  return stops.map((st, i) => (i !== el.k ? st : Object.assign({}, st, el.mode === 'both' ? { s1: st.s1 - st.dir * e / 2, len: st.len + e } : { len: st.len + e })));
+}
+function solveE(stops, el, Bq, f, L) {
+  const est = (e) => estimate(withE(stops, el, e), Bq, f).est;
+  let lo = el.lo, hi = el.hi;
+  if (lo > hi) return null;
+  if (est(hi) <= L) return hi;
+  if (est(lo) >= L) return lo;
+  for (let i = 0; i < 30; i++) { const m = (lo + hi) / 2; if (est(m) < L) lo = m; else hi = m; }
+  return (lo + hi) / 2;
+}
+function greenEst(stops) {
+  const seen = new Set();
+  let g = 0;
+  stops.forEach((st) => { if (st.t === 'arc') { g += st.len * st.R.cov; seen.add(st.R.fid); } });
+  stops.forEach((st) => { if (st.t === 'pt' && !seen.has(st.fid)) { g += st.v * 200; seen.add(st.fid); } });
+  return g;
+}
+const stopName = (st) => (st.t === 'arc' ? st.R.name : st.name) || '';
+function comboName(stops) {
+  const arcs = stops.filter((st) => st.t === 'arc');
+  if (stops.length === 1 && arcs.length === 1) {
+    const st = arcs[0], R = st.R, n = R.name || (R.water ? 'am Wasser' : 'im Park');
+    const laps = st.len / R.len, k = Math.floor(laps + 0.15);
+    const kind = laps < 0.85 ? 'Bogen' : (k >= 2 ? k + ' Runden' : 'Runde') + (laps - k > 0.15 ? '+' : '');
+    return kind + (R.name ? ': ' : ' ') + n;
+  }
+  const names = [];
+  stops.forEach((st) => { const n = stopName(st); if (n && names.indexOf(n) < 0) names.push(n); });
+  return names.length ? 'Über ' + names.slice(0, 2).join(' und ') : (arcs.length ? 'Parkrunde' : 'Grünzug');
+}
+// Alle Kandidaten mit geschätzter Länge im Bereich ±15 %; Wert = geschätzte Meter im Grünen pro Meter
+function candidates(Bq, L, anchors, rings, f, loop) {
+  const out = [];
+  const add = (stops, el, mult) => {
+    if (el) {
+      const e = solveE(stops, el, Bq, f, L);
+      if (e == null) return;
+      stops = withE(stops, el, e);
+      el = Object.assign({}, el, { e, lo: el.lo - e, hi: el.hi - e }); // Grenzen relativ zum neuen Stand
+    }
+    const { est, geo } = estimate(stops, Bq, f), err = (est - L) / L;
+    if (Math.abs(err) > 0.15) return;
+    const fids = Array.from(new Set(stops.map((st) => (st.t === 'arc' ? st.R.fid : st.fid))));
+    const key = stops.map((st) => (st.t === 'arc' ? st.R.fid + '~' + Math.round(st.s1 / 50) + '/' + Math.round(st.len / 100) + st.dir : st.fid + '@' + Math.round(st.q.x) + ',' + Math.round(st.q.y))).join('|');
+    const arcs = stops.filter((st) => st.t === 'arc').sort((p, q) => q.len - p.len);
+    out.push({ stops, el, est, geo, err, green: greenEst(stops), val: greenEst(stops) / L * (1 - 2 * Math.abs(err)) * (mult || 1), key,
+      sig: fids.sort().join('+'), main: arcs.length ? arcs[0].R.fid : stops[0].fid, ring: arcs.length > 0 });
+  };
+  // Parkrunden in Reichweite, die vielversprechendsten zuerst
+  const rs = rings.map((R) => ({ R, nS: ringNear(R, O), nB: loop ? null : ringNear(R, Bq) }))
+    .filter((x) => x.R.len >= 250 && (loop ? 2 * f * x.nS.d <= 0.85 * L : f * (x.nS.d + x.nB.d) <= 1.05 * L))
+    .map((x) => Object.assign(x, { pot: Math.min(x.R.len, 0.7 * L) * x.R.cov - 0.3 * f * (x.nS.d + (loop ? x.nS.d : x.nB.d)) }))
+    .sort((a, b) => b.pot - a.pot);
+  const arcTo = (R, e, x, dir) => ({ t: 'arc', R, s1: e, len: mod(dir * (x - e), R.len), dir });
+  rs.slice(0, 12).forEach(({ R, nS, nB }) => {
+    if (loop) {
+      const s0 = nS.s; // Fenster um vier Mittelpunkte: gegenüber (Halbrunde/Runde), seitlich, nah
+      [s0 + R.len / 2, s0 + R.len / 4, s0 - R.len / 4, s0].forEach((c) => add([{ t: 'arc', R, s1: c, len: 0, dir: 1 }], { k: 0, mode: 'both', lo: 160, hi: R.len }));
+      add([{ t: 'arc', R, s1: s0, len: R.len, dir: 1 }], { k: 0, mode: 'end', lo: 0, hi: 0.6 * R.len }, 0.85); // Runde und ein Stück weiter
+      if (R.len >= 600) add([{ t: 'arc', R, s1: s0, len: R.len, dir: 1 }], { k: 0, mode: 'end', lo: 0.6 * R.len, hi: 2 * R.len }, 0.7); // mehrere Runden
+    } else {
+      [1, -1].forEach((dir) => { const st = arcTo(R, nS.s, nB.s, dir); add([st], { k: 0, mode: 'both', lo: -0.6 * st.len, hi: R.len - st.len }); });
+    }
+  });
+  const top = rs.slice(0, 7);
+  const ord = (p) => (loop ? Math.atan2(p.y, p.x) : p.x * Bq.x + p.y * Bq.y);
+  // zwei Parkrunden nacheinander
+  for (let i = 0; i < top.length; i++) for (let j = i + 1; j < top.length; j++) {
+    let [R1, R2] = [top[i].R, top[j].R];
+    if (ord(R1.c) > ord(R2.c)) [R1, R2] = [R2, R1];
+    const e1 = ringNear(R1, O).s, x1 = ringNear(R1, R2.c).s, e2 = ringNear(R2, ringAt(R1, x1)).s, x2 = ringNear(R2, Bq).s;
+    [1, -1].forEach((d1) => [1, -1].forEach((d2) => {
+      const stops = [arcTo(R1, e1, x1, d1), arcTo(R2, e2, x2, d2)], k = R1.len >= R2.len ? 0 : 1, st = stops[k];
+      add(stops, { k, mode: 'both', lo: -0.5 * st.len, hi: st.R.len - st.len });
+    }));
+  }
+  // Parkrunde plus Anker (Fluss, Kanal, andere Grünfläche)
+  const ap = anchors.filter((a) => Math.hypot(a.q.x, a.q.y) > 150 && dxy(a.q, Bq) > 150).sort((p, q) => q.v - p.v).slice(0, 16).map((a) => Object.assign({ t: 'pt' }, a));
+  top.forEach(({ R }) => ap.forEach((a) => {
+    if (a.fid === R.fid) return;
+    const before = ord(a.q) < ord(R.c);
+    [1, -1].forEach((dir) => {
+      const st = before ? arcTo(R, ringNear(R, a.q).s, ringNear(R, Bq).s, dir) : arcTo(R, ringNear(R, O).s, ringNear(R, a.q).s, dir);
+      add(before ? [a, st] : [st, a], { k: before ? 1 : 0, mode: 'both', lo: -0.5 * st.len, hi: R.len - st.len });
+    });
+  }));
+  // nur Anker (1–3), wie bisher
+  greenCombos(Bq, L, anchors, f, loop).forEach((c) => add(c.ord.map((a) => Object.assign({ t: 'pt' }, a)), null, c.mult));
+  out.sort((p, q) => q.val - p.val);
+  return out;
+}
+function greenCombos(B, L, anchors, f, loop) {
+  const b = loop ? O : B, ab = Math.hypot(b.x, b.y) || 1, Lg = L / f;
+  const cand = anchors.filter((a) => {
+    const d1 = Math.hypot(a.q.x, a.q.y), d2 = dxy(a.q, b);
+    return d1 > 150 && d2 > 150 && (loop ? 2 * d1 : d1 + d2) <= Lg * 1.05;
+  }).sort((p, q) => q.v - p.v).slice(0, 28);
   const combos = [];
   const add = (arr) => {
     const ord = loop ? arr.slice().sort((p, q) => Math.atan2(p.q.y, p.q.x) - Math.atan2(q.q.y, q.q.x))
       : arr.slice().sort((p, q) => (p.q.x * b.x + p.q.y * b.y) - (q.q.x * b.x + q.q.y * b.y));
-    let geo = 0, prev = { x: 0, y: 0 };
-    ord.concat([{ q: b }]).forEach((a) => { geo += Math.hypot(a.q.x - prev.x, a.q.y - prev.y); prev = a.q; });
-    const est = geo * f, err = Math.abs(est - L) / L;
-    if (err > 0.2) return;
-    const fids = new Set();
-    let val = 0;
-    ord.forEach((a) => { val += fids.has(a.fid) ? a.v * 0.3 : a.v; fids.add(a.fid); });
-    if (loop && ord.length === 1) val *= 0.5; // nur hin und zurück
+    let mult = 1;
+    if (loop && ord.length === 1) mult = 0.5; // nur hin und zurück
     if (loop && ord.length >= 2) {
       const a1 = Math.atan2(ord[0].q.y, ord[0].q.x), a2 = Math.atan2(ord[ord.length - 1].q.y, ord[ord.length - 1].q.x);
       let span = Math.abs(a2 - a1); if (span > Math.PI) span = 2 * Math.PI - span;
-      if (span < 0.6) val *= 0.6; // Fächer zu schmal: fast hin und zurück
+      if (span < 0.6) mult = 0.6; // Fächer zu schmal: fast hin und zurück
     }
-    if (!loop) ord.forEach((a) => { const side = Math.abs(a.q.x * b.y - a.q.y * b.x) / ab; if (side < 80) val *= 0.9; });
-    const key = ord.map((a) => a.fid + '@' + Math.round(a.q.x) + ',' + Math.round(a.q.y)).join('|');
-    if (!skip.has(key)) combos.push({ ord, est, geo, val: val * (1 - err), key });
+    if (!loop) ord.forEach((a) => { if (Math.abs(a.q.x * b.y - a.q.y * b.x) / ab < 80) mult *= 0.9; });
+    combos.push({ ord, mult });
   };
   cand.forEach((a) => add([a]));
   for (let i = 0; i < cand.length; i++) for (let j = i + 1; j < cand.length; j++) add([cand[i], cand[j]]);
   const top = cand.slice(0, 14);
   for (let i = 0; i < top.length; i++) for (let j = i + 1; j < top.length; j++) for (let k = j + 1; k < top.length; k++) add([top[i], top[j], top[k]]);
-  combos.sort((p, q) => q.val - p.val);
   return combos;
 }
-function distinctCombos(combos, n) {
-  const out = [];
-  for (const c of combos) {
-    const f = new Set(c.ord.map((a) => a.fid));
-    if (out.some((o) => o.ord.filter((a) => f.has(a.fid)).length >= Math.max(1, Math.min(c.ord.length, o.ord.length)))) continue;
-    out.push(c);
-    if (out.length >= n) break;
-  }
+// Verschiedene Kandidaten wählen: keine gleiche Flächen-Kombination, jede Parkrunde höchstens zweimal
+function distinctPicks(cands, n, skip) {
+  const out = [], sigs = new Set(), use = new Map();
+  const take = (c) => {
+    if (skip.has(c.key) || sigs.has(c.sig)) return false;
+    const main = c.main;
+    if ((use.get(main) || 0) >= 2) return false;
+    out.push(c); sigs.add(c.sig); use.set(main, (use.get(main) || 0) + 1);
+    return true;
+  };
+  const firstOnly = cands.find((c) => !c.ring && !skip.has(c.key)); // mindestens ein reiner Anker-Kandidat (z. B. Kanalufer)
+  for (const c of cands) { if (out.length >= n - (firstOnly ? 1 : 0)) break; take(c); }
+  if (firstOnly && out.indexOf(firstOnly) < 0) take(firstOnly);
+  for (const c of cands) { if (out.length >= n) break; take(c); }
   return out;
 }
-function greenName(c) {
-  const names = [];
-  c.ord.forEach((a) => { if (a.name && names.indexOf(a.name) < 0) names.push(a.name); });
-  return names.length ? 'Über ' + names.slice(0, 2).join(' und ') : 'Grünzug';
+function stopsVias(stops) {
+  const v = [];
+  stops.forEach((st) => { if (st.t === 'pt') v.push(st.q); else v.push(...arcPts(st.R, st.s1, st.len, st.dir)); });
+  return v;
 }
-// Grün-Kandidaten rechnen; bei Bedarf eine zweite Runde mit nachkalibriertem Umwegfaktor
+// Grün-Kandidaten rechnen, die besten außerhalb des Längenbereichs über die Bogenlänge nachregeln
 async function greenVariants(A, B, L, pr, ctx, notes, loop) {
-  const P = proj(A), Bq = loop ? null : P.to(B);
+  const P = proj(A), Bq = loop ? O : P.to(B);
   const R = loop ? L / 2.4 : L / 2.2, mid = loop ? A : { lat: (A.lat + B.lat) / 2, lon: (A.lon + B.lon) / 2 };
   const dLat = R / 111320, dLon = R / (111320 * Math.cos(mid.lat * Math.PI / 180));
   status('Lade Grünflächen …');
   const g = await loadGreen({ s: mid.lat - dLat, n: mid.lat + dLat, w: mid.lon - dLon, e: mid.lon + dLon }, 10000);
   const anchors = dedupeAnchors(anchorsFrom(g.feats, P).concat(g.pre.map((a) => ({ q: P.to(a), v: a.v, fid: a.fid, name: a.name }))));
+  const rings = g.rings.concat(loopsFromFeats(g.feats, P)).map((K) => prepRing(K, P)).filter(Boolean);
   if (g.missing || g.failed) notes.push(anchors.length ? 'Grünflächen nur teilweise geladen – beim nächsten Versuch vollständiger.'
     : 'Grünflächen gerade nicht abrufbar – nur Standard-Varianten.');
-  state.greenAnchors = anchors.length;
-  if (!anchors.length) return [];
-  const skip = new Set(state.shownGreen || []), out = [];
-  const routeCombo = (c) => brouter([A].concat(c.ord.map((a) => P.from(a.q)), [loop ? A : B]), ctx, {})
-    .then((r) => Object.assign(r, { err: (r.dist - L) / L, name: greenName(c), combo: c, green: true }));
-  let f = 1.3;
-  for (let round = 0; round < 2; round++) {
-    const picks = distinctCombos(greenCombos(Bq, L, anchors, f, loop, skip), round ? 2 : 4);
-    if (!picks.length) break;
-    picks.forEach((c) => skip.add(c.key));
-    const got = settled(await Promise.allSettled(picks.map(routeCombo)), notes);
-    out.push(...got);
-    if (got.some((v) => inBand(v, L, pr)) || !got.length) break;
-    const fs = got.map((v) => v.dist / v.combo.geo).sort((a, b) => a - b);
-    f = clamp(fs[Math.floor(fs.length / 2)], 1.05, 2.5);
-  }
-  // Feinregelung: die zwei günstigsten Grün-Routen außerhalb des Längenbereichs strecken oder kürzen
-  const fix = out.filter((v) => !inBand(v, L, pr)).sort((a, b) => a.cost / a.dist - b.cost / b.dist).slice(0, 2);
-  out.push(...settled(await Promise.allSettled(fix.map((v) => tuneGreen(A, B, L, v, P, ctx, loop))), []));
+  state.greenAnchors = anchors.length; state.rings = rings.length; state.lapCount = 0; state.arcCount = 0;
+  const skip = state.shownGreen || new Set();
+  const out = [];
+  if (pr.lap) out.push(...settled(await Promise.allSettled(lapCands(A, L, rings, P).filter((c) => !skip.has(c.key)).slice(0, 3).map((c) => routeLap(c, L, ctx, P))), notes));
+  state.lapCount = out.length;
+  if (!anchors.length && !rings.length) return out;
+  const route = (c) => brouter([A].concat(stopsVias(c.stops).map((q) => P.from(q)), [loop ? A : B]), ctx, {})
+    .then((r) => Object.assign(r, { err: (r.dist - L) / L, name: comboName(c.stops), combo: c, green: true }));
+  const picks = distinctPicks(candidates(Bq, L, anchors, rings, 1.3, loop), pr.lap ? 2 : 6, skip);
+  out.push(...settled(await Promise.allSettled(picks.map(route)), notes));
+  state.arcCount = picks.filter((c) => c.ring).length;
+  // Länge nachregeln: Bogen verlängern oder kürzen (statt Umwege in Seitenstraßen), sonst Anker weglassen
+  const fix = out.filter((v) => v.combo && !v.lapN && !inBand(v, L, pr)).sort((a, b) => score(a) - score(b)).slice(0, 3);
+  out.push(...settled(await Promise.allSettled(fix.map((v) => {
+    const c = v.combo;
+    if (c.el) {
+      const de = clamp((L - v.dist) / (FA * clamp(v.dist / c.est, 0.8, 1.6)), c.el.lo, c.el.hi); // beobachteter Umwegfaktor
+      if (Math.abs(de) < 60) return null;
+      const stops = withE(c.stops, c.el, de);
+      return route(Object.assign({}, c, { stops, el: Object.assign({}, c.el, { lo: c.el.lo - de, hi: c.el.hi - de }) }));
+    }
+    return v.dist > L ? shorten(A, B, L, v, P, ctx, loop) : null;
+  })), []).filter(Boolean));
   return out;
 }
-async function tuneGreen(A, B, L, v, P, ctx, loop) {
-  const c = v.combo, fobs = clamp(v.dist / c.geo, 1, 3), need = (L - v.dist) / fobs; // geometrische Änderung in m
-  const pts = [{ x: 0, y: 0 }].concat(c.ord.map((a) => a.q), [loop ? { x: 0, y: 0 } : P.to(B)]);
-  const d = (p, q) => Math.hypot(q.x - p.x, q.y - p.y);
-  if (need > 0) { // längste Teilstrecke ausbeulen, weg vom Schwerpunkt der Route
-    let k = 0;
-    for (let i = 1; i < pts.length - 1; i++) if (d(pts[i], pts[i + 1]) > d(pts[k], pts[k + 1])) k = i;
-    const p = pts[k], q = pts[k + 1], leg = d(p, q) || 1, h = Math.sqrt(Math.pow((leg + need) / 2, 2) - Math.pow(leg / 2, 2));
-    const mx = (p.x + q.x) / 2, my = (p.y + q.y) / 2, nx = -(q.y - p.y) / leg, ny = (q.x - p.x) / leg;
-    const cx = pts.reduce((sum, t) => sum + t.x, 0) / pts.length, cy = pts.reduce((sum, t) => sum + t.y, 0) / pts.length;
-    const side = (mx - cx) * nx + (my - cy) * ny >= 0 ? 1 : -1;
-    pts.splice(k + 1, 0, { x: mx + side * nx * h, y: my + side * ny * h });
-  } else { // den Anker weglassen, dessen Wegfall der Ziellänge am nächsten kommt
-    if (pts.length < 4) throw new RouteErr('Nicht kürzbar', 'other');
-    let best = -1, bestErr = Infinity;
-    for (let i = 1; i < pts.length - 1; i++) {
-      const geo = c.geo - d(pts[i - 1], pts[i]) - d(pts[i], pts[i + 1]) + d(pts[i - 1], pts[i + 1]);
-      if (Math.abs(geo - (c.geo + need)) < bestErr) { bestErr = Math.abs(geo - (c.geo + need)); best = i; }
-    }
-    pts.splice(best, 1);
+// Zu lange Anker-Route: den Anker weglassen, dessen Wegfall der Ziellänge am nächsten kommt
+async function shorten(A, B, L, v, P, ctx, loop) {
+  const c = v.combo, pts = [O].concat(c.stops.map((st) => st.q), [loop ? O : P.to(B)]);
+  if (pts.length < 4) return null;
+  const fobs = clamp(v.dist / c.geo, 1, 3), geo = c.geo + (L - v.dist) / fobs;
+  let best = -1, bestErr = Infinity;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const gi = c.geo - dxy(pts[i - 1], pts[i]) - dxy(pts[i], pts[i + 1]) + dxy(pts[i - 1], pts[i + 1]);
+    if (Math.abs(gi - geo) < bestErr) { bestErr = Math.abs(gi - geo); best = i; }
   }
-  const r = await brouter([A].concat(pts.slice(1, -1).map((q) => P.from(q)), [loop ? A : B]), ctx, {});
-  return Object.assign(r, { err: (r.dist - L) / L, name: v.name, combo: c, green: true });
+  const stops = c.stops.filter((_, i) => i !== best - 1);
+  const r = await brouter([A].concat(stops.map((st) => P.from(st.q)), [loop ? A : B]), ctx, {});
+  return Object.assign(r, { err: (r.dist - L) / L, name: comboName(stops), combo: Object.assign({}, c, { stops, key: c.key + '-' + best }), green: true });
+}
+// Intervalle: ganze Runden um nahe Parks oder Seen, bei kurzen Runden mehrere pro Wiederholung
+function lapCands(A, L, rings, P) {
+  const out = [];
+  rings.forEach((R) => {
+    const nS = ringNear(R, O);
+    if (nS.d > 2000 || R.cov < 0.6 || R.len < 250) return;
+    const n = clamp(Math.round(L / (R.len * FA)), 1, 3), err = (n * R.len * FA - L) / L;
+    if (Math.abs(err) > 0.3) return;
+    out.push({ stops: [{ t: 'arc', R, s1: nS.s, len: n * R.len, dir: 1 }], n, R, to: nS.d, err, key: 'lap:' + R.fid + ':' + n,
+      val: R.cov * (1 - Math.abs(err)) / (1 + nS.d / 1500) });
+  });
+  return out.sort((a, b) => b.val - a.val);
+}
+async function routeLap(c, L, ctx, P) {
+  const pts = stopsVias(c.stops).map((q) => P.from(q));
+  const r = await brouter(pts, ctx, {});
+  const nm = c.R.name || (c.R.water ? 'Seeufer' : 'Park');
+  return Object.assign(r, { err: (r.dist - L) / L, name: (c.n > 1 ? c.n + ' Runden: ' : 'Runde: ') + nm, combo: c, green: true, lapTo: c.to, lapN: c.n });
 }
 
 // Ablauf: geometrische und Grün-Kandidaten, die günstigsten geometrischen nachregeln, drei verschiedene auswählen.
@@ -772,7 +1006,8 @@ async function loopVariants(A, L, pr, ctx, notes) {
     greenVariants(A, null, L, pr, ctx, notes, true).catch(() => [])
   ]);
   let cands = settled(geoRes, notes);
-  const todo = cands.filter((c) => !inBand(c, L, pr)).sort((a, b) => a.cost / a.dist - b.cost / b.dist).slice(0, green.length && !pr.strict ? 2 : 3);
+  const greenOk = green.some((v) => inBand(v, L, pr));
+  const todo = cands.filter((c) => !inBand(c, L, pr)).sort((a, b) => score(a) - score(b)).slice(0, pr.strict ? 3 : (greenOk ? 1 : 2));
   const refined = settled(await Promise.allSettled(todo.map((c) => fitLoop(A, L, c.dir, pr, ctx, c.R * L / c.dist, ctx.maxIter - 1))), notes);
   cands = cands.concat(refined);
   cands.forEach((v) => { v.name = (pr.lap ? 'Runde ' : 'Rundkurs ') + compass(v.dir); });
@@ -787,7 +1022,7 @@ async function detourVariants(A, B, L, pr, ctx, notes, direct) {
     greenVariants(A, B, L, pr, ctx, notes, false).catch(() => [])
   ]);
   let cands = settled(geoRes, notes);
-  const todo = cands.filter((c) => !inBand(c, L, pr));
+  const todo = cands.filter((c) => !inBand(c, L, pr)).slice(0, green.some((v) => inBand(v, L, pr)) ? 1 : 2);
   const refined = settled(await Promise.allSettled(todo.map((c) => fitDetour(A, B, L, c.f, c.t, c.sign, pr, ctx, ctx.maxIter - 1))), notes);
   cands = cands.concat(refined);
   const M = [(A.lon + B.lon) / 2, (A.lat + B.lat) / 2];
@@ -835,12 +1070,13 @@ async function compute(again) {
     }
     if (!cands.length) throw new RouteErr(notes[0] || 'Keine Route gefunden.', 'other');
     const vs = pickVariants(cands, L, pr, 3);
+    state.cands = cands.map((v) => ({ name: v.name, dist: Math.round(v.dist), score: Math.round(score(v) * 1000) / 1000, green: !!v.green })); // für Tests
     vs.forEach((v) => { if (v.combo) state.shownGreen.add(v.combo.key); });
     vs.forEach((v, i) => {
-      v.q = quality(v); v.score = v.cost / v.dist; v.colorVar = COLORS[i % COLORS.length];
+      v.q = quality(v); v.score = score(v); v.colorVar = COLORS[i % COLORS.length];
       if (settings.strides) v.strides = findStrides(v);
     });
-    if (!vs.some((v) => inBand(v, L, pr))) notes.unshift('Keine Variante liegt im Bereich ±' + nf0.format(band(L, pr)) + ' m – nächstliegende zuerst.');
+    if (!vs.some((v) => inBand(v, L, pr))) notes.unshift('Keine Variante liegt im Bereich ±' + nf0.format(band(L, pr)) + ' m – beste Alternativen zuerst.');
     const warn = notes.length && !vs.some((v) => inBand(v, L, pr));
     state.variants = vs; state.sel = 0; state.notes = notes; state.statusNote = warn ? notes[0] : null;
     renderResults(true);
@@ -955,8 +1191,9 @@ function renderResults(fit) {
 }
 function tradeText(a, b) {
   const parts = [];
-  const dg = a.m.green - b.m.green;
+  const dg = a.m.green - b.m.green, dr = (a.m.greenRun || 0) - (b.m.greenRun || 0);
   if (Math.abs(dg) >= 150) parts.push(dg > 0 ? '+' + km1(dg) + ' im Grünen/am Wasser' : km1(-dg) + ' weniger Grün');
+  if (dr >= 500) parts.push('längeres Stück am Stück im Grünen (' + km1(a.m.greenRun) + ')');
   const ds = a.m.signals.length - b.m.signals.length, dx = a.m.cross.length - b.m.cross.length;
   if (ds) parts.push(Math.abs(ds) + (Math.abs(ds) === 1 ? ' Ampel ' : ' Ampeln ') + (ds > 0 ? 'mehr' : 'weniger'));
   if (dx) parts.push(Math.abs(dx) + (Math.abs(dx) === 1 ? ' Querung ' : ' Querungen ') + (dx > 0 ? 'mehr' : 'weniger'));
@@ -977,18 +1214,21 @@ function renderDetail(pace) {
   if (pr.lap) {
     const reps = Math.max(1, Number($('repsInput').value) || 1);
     html += '<p class="trade"><b>' + reps + ' × ' + nf0.format(v.dist) + ' m</b> = ' + km1(v.dist * reps) + ' Belastung, je Runde ca. ' + fmtDur(km * pace) + '.' +
-      (v.m.signals.length + v.m.cross.length === 0 ? ' Ohne Ampel und ohne Querung.' : ' Achtung: ' + (v.m.signals.length + v.m.cross.length) + ' Stopp(s) pro Runde.') + '</p>';
+      (v.m.signals.length + v.m.cross.length === 0 ? ' Ohne Ampel und ohne Querung.' : ' Achtung: ' + (v.m.signals.length + v.m.cross.length) + ' Stopp(s) pro Runde.') +
+      (v.lapTo != null ? ' Die Runde beginnt ca. ' + nf0.format(Math.round(v.lapTo / 50) * 50) + ' m Luftlinie vom Start' + (v.lapN > 1 ? '; eine Wiederholung = ' + v.lapN + ' Runden.' : '.') : '') + '</p>';
   }
   if (state.sel === 0 && state.variants.length > 1 && !state.fromHistory) html += '<p class="trade">' + esc(tradeText(v, state.variants[1])) + '</p>';
   const tpk = v.turns != null && km > 0 ? v.turns / km : null;
   html += '<div class="kv">' +
     '<span>Wege im Grünen / am Wasser</span><span>' + km1(v.m.green) + ' (' + Math.round(100 * v.m.green / Math.max(v.dist, 1)) + ' %)</span>' +
+    (v.m.greenRun ? '<span>Längstes Stück im Grünen</span><span>' + km1(v.m.greenRun) + '</span>' : '') +
     '<span>Straßen und Gehwege</span><span>' + km1(v.m.street || 0) + ' (' + Math.round(100 * (v.m.street || 0) / Math.max(v.dist, 1)) + ' %)</span>' +
     '<span>davon große Straßen</span><span>' + km1(v.m.big) + '</span>' +
     '<span>Ampeln</span><span>' + v.m.signals.length + '</span>' +
     '<span>Hauptstraße ohne Ampel/Zebra queren</span><span>' + v.m.cross.length + (v.m.cross.length ? ' (max. Risiko ' + Math.max.apply(null, v.m.cross.map((c) => c.cls)) + ')' : '') + '</span>' +
     '<span>Zebrastreifen</span><span>' + v.m.zebras.length + '</span>' +
     (tpk != null ? '<span>Abbiegungen</span><span>' + v.turns + ' (' + nf1.format(tpk) + ' pro km)</span>' : '') +
+    (v.revs && v.revs.some((r) => r.street) ? '<span>Wenden auf Straßen</span><span>' + v.revs.filter((r) => r.street).length + '</span>' : '') +
     '<span>Anstieg</span><span>' + nf0.format(v.up) + ' m</span></div>';
   if (v.strides) html += '<p class="trade">Steigerungen: gerades Stück ohne Querung, ' + nf0.format(v.strides.len) + ' m ab km ' + nf1.format(v.strides.at / 1000) + ' (grün gestrichelt).</p>';
   else if (settings.strides && !pr.lap) html += '<p class="hint">Kein gerades Stück ≥ 100 m ohne Querung in der zweiten Hälfte gefunden.</p>';
@@ -1031,7 +1271,8 @@ function canShareFile() { try { const v = state.variants[state.sel]; return !!(v
 // ---------- Verlauf ----------
 function slimVariant(v) {
   return { name: v.name, dist: v.dist, cost: v.cost, up: v.up, turns: v.turns, err: v.err, q: v.q, score: v.score, strides: v.strides || null,
-    coords: v.coords.map((c) => [Math.round(c[0] * 1e5) / 1e5, Math.round(c[1] * 1e5) / 1e5, isFinite(c[2]) ? Math.round(c[2]) : null]), m: v.m };
+    lapTo: v.lapTo, lapN: v.lapN, coords: v.coords.map((c) => [Math.round(c[0] * 1e5) / 1e5, Math.round(c[1] * 1e5) / 1e5, isFinite(c[2]) ? Math.round(c[2]) : null]),
+    m: Object.assign({}, v.m, { segs: [] }) };
 }
 async function saveHistory() {
   const v = state.variants[state.sel];
@@ -1300,5 +1541,5 @@ if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
 })();
 
 // Für Tests im Browser erreichbar (keine Wirkung im Normalbetrieb)
-window.__laufrouten = { state, settings, PRESETS, metrics, findStrides, loopFactor, band, version: APP_VERSION };
+window.__laufrouten = { state, settings, PRESETS, metrics, findStrides, loopFactor, band, band2, score, version: APP_VERSION };
 })();

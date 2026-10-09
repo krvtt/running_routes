@@ -6,10 +6,12 @@ Aufruf (im Repo-Ordner):
     python3 tests/e2e.py --brouter http://localhost:17777 \\
         --center 8.7120,50.0020 --scale 0.25               # echter BRouter-Server
 
-Adresssuche (Nominatim) und Kartenkacheln werden immer simuliert. Mit --brouter
-gehen Profil-Upload und alle Routing-Anfragen an den angegebenen Server; --center
-muss dann in dessen Kartendaten liegen, --scale verkleinert die Testlängen
-passend zur Größe des Datenausschnitts.
+Adresssuche (Nominatim) und Kartenkacheln werden immer simuliert, Grünflächen
+(data/green/ und Overpass) ebenfalls, außer mit --green <ordner>: dann kommen die
+vorberechneten Kacheln aus diesem Ordner (Ausgabe von tools/green_anchors.py).
+Mit --brouter gehen Profil-Upload und alle Routing-Anfragen an den angegebenen
+Server; --center muss dann in dessen Kartendaten liegen, --scale verkleinert die
+Testlängen passend zur Größe des Datenausschnitts.
 
 Benötigt: pip install playwright (Chromium muss installiert sein).
 Rückgabewert 0 = alle Prüfungen bestanden.
@@ -18,6 +20,7 @@ import argparse
 import base64
 import json
 import math
+import os
 import re
 import sys
 import tempfile
@@ -114,6 +117,7 @@ def main():
     ap.add_argument("--center", default="9.9930,53.5600", help="lon,lat für Start/Ziel")
     ap.add_argument("--scale", type=float, default=1.0, help="Faktor für Testlängen")
     ap.add_argument("--shots", help="Ordner für Screenshots")
+    ap.add_argument("--green", help="Ordner mit vorberechneten Grünflächen-Kacheln statt Simulation")
     a = ap.parse_args()
     center = tuple(map(float, a.center.split(",")))
     places = {"start": offset(center, 700 * a.scale, -150 * a.scale), "ziel": offset(center, -700 * a.scale, 150 * a.scale)}
@@ -144,15 +148,53 @@ def main():
         ]
         route.fulfill(status=200, content_type="application/json", headers=CORS, body=json.dumps({"elements": els}))
 
+    def tile_of(p):
+        return "%d_%d" % (math.floor(p[1] / 0.05), math.floor(p[0] / 0.08))
+
+    def green_tiles(route):
+        """Vorberechnete Kacheln: aus --green oder simuliert (Kachel am Testmittelpunkt mit Wiese, Teich, Anker)."""
+        name = urlparse(route.request.url).path.rsplit("/", 1)[-1]
+        if a.green:
+            path = os.path.join(a.green, name)
+            if not os.path.exists(path):
+                return route.fulfill(status=404, body="")
+            return route.fulfill(status=200, content_type="application/json", body=open(path, "rb").read())
+        key = tile_of(center)
+        if name == "index.json":
+            return route.fulfill(status=200, content_type="application/json", body=json.dumps({"v": 2, "tiles": [key]}))
+        if name != key + ".json":
+            return route.fulfill(status=404, body="")
+        k = a.scale
+
+        def ring(cx, cy, w, h, n=24):
+            pts = []
+            for i in range(n):
+                t = i / n * 4
+                x, y = [(-w + 2 * w * t, -h), (w, -h + 2 * h * (t - 1)), (w - 2 * w * (t - 2), h), (-w, h - 2 * h * (t - 3))][min(3, int(t))]
+                pts.append(offset(center, cx + x, cy + y))
+            flat, px, py = [], 0, 0
+            for lon, lat in pts:
+                x, y = round(lon * 1e5), round(lat * 1e5)
+                flat += [x - px, y - py]
+                px, py = x, y
+            return flat, "1" * n
+        wiese, wm = ring(500 * k, 300 * k, 120 * k, 120 * k)
+        teich, tm = ring(-600 * k, -900 * k, 350 * k, 250 * k)
+        anchor = offset(center, -1300 * k, 600 * k)
+        body = {"v": 2, "a": [[round(anchor[0], 5), round(anchor[1], 5), 1.2, 2]], "f": [["w11", "Testwiese"], ["w12", "Testteich"], ["w13", "Testgraben"]],
+                "r": [[0, round(960 * k), 0.9, 0, 1.4, wiese, wm], [1, round(2400 * k), 0.8, 1, 17.5, teich, tm]]}
+        route.fulfill(status=200, content_type="application/json", body=json.dumps(body))
+
     mock = MockBRouter()
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
-        ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2, locale="de-DE",
+        ctx = browser.new_context(viewport={"width": 390, "height": 844}, device_scale_factor=2, locale="de-DE", service_workers="block",
                                   timezone_id="Europe/Berlin", accept_downloads=True)
         ctx.route("https://nominatim.openstreetmap.org/**", geocoder)
         ctx.route(re.compile(r"https://.*(tile\.openstreetmap|basemaps\.cartocdn).*"),
                   lambda r: r.fulfill(status=200, content_type="image/png", body=PNG))
         ctx.route(re.compile(r"https://overpass[^/]*/api/interpreter"), overpass)
+        ctx.route(re.compile(r".*/data/green/[^/]+\.json$"), green_tiles)
         if not a.brouter:
             ctx.route("https://brouter.de/**", mock)
         page = ctx.new_page()
@@ -221,16 +263,25 @@ def main():
         page.click("[data-preset=intervall]")
         page.fill("#lapInput", str(int(max(600, 1000 * a.scale))))
         run("Intervall-Runde")
+        laps = page.evaluate("window.__laufrouten.state.lapCount || 0")
+        check("Intervall-Runden um Parks gerechnet", laps > 0 or (a.brouter and not a.green), f"{laps} Parkrunden")
         page.click("[data-preset=dauer]")
         page.check("#stridesChk")
         page.fill("#kmInput", km(8))
         run("Rundkurs Dauerlauf mit Steigerungen")
         green_names = page.evaluate("window.__laufrouten.state.variants.filter(v => v.green).map(v => v.name)")
         green_count = page.evaluate("window.__laufrouten.state.greenCount || 0")
+        rings = page.evaluate("window.__laufrouten.state.rings || 0")
+        arcs = page.evaluate("window.__laufrouten.state.arcCount || 0")
         if a.brouter:  # echte Daten ohne Grün-Klassen: nur prüfen, dass Grün-Kandidaten gerechnet wurden
             check("Grünflächen-Kandidaten gerechnet", green_count > 0, f"{green_count} Kandidaten")
         else:
-            check("Grünflächen-Kandidaten in der Auswahl", len(green_names) > 0, ", ".join(green_names) or "keine")
+            # Simulierter Server kennt kein Grün: prüfen, dass Grün-Kandidaten im Längenbereich gerechnet wurden
+            cands = page.evaluate("window.__laufrouten.state.cands || []")
+            band = page.evaluate("(() => { const T = window.__laufrouten; return T.band(T.state.lastL, T.PRESETS[T.settings.preset]); })()")
+            ok = [c for c in cands if c["green"] and abs(c["dist"] - 8000 * a.scale) <= band]
+            check("Grünflächen-Kandidaten im Längenbereich", ok, "; ".join(f"{c['name']} {c['dist']} m" for c in ok) or "keine")
+        check("Parkrunden geladen und gerechnet", rings > 0 and arcs > 0, f"{rings} Parkrunden, {arcs} Kandidaten mit Bogen")
         names_before = page.evaluate("window.__laufrouten.state.variants.map(v => v.name).join()")
         page.click("#againBtn")
         page.wait_for_function("!document.getElementById('goBtn').disabled", timeout=120000)

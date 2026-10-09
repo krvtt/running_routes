@@ -11,6 +11,9 @@
     { "id": "hh-altona-recovery5", "city": "Hamburg", "preset": "recovery", "mode": "rt", "km": 5, "start": "Bahnhof Altona", "expect": [] },
     { "id": "hh-planten-intervall", "city": "Hamburg", "preset": "intervall", "mode": "rt", "lap": 1000, "start": "Planten un Blomen", "expect": ["Planten un Blomen"] },
     { "id": "hh-kellinghusen-tempo8", "city": "Hamburg", "preset": "tempo", "mode": "rt", "km": 8, "start": "Kellinghusenstraße", "expect": [] },
+    { "id": "hh-barmbek-rk8", "city": "Hamburg", "preset": "dauer", "mode": "rt", "km": 8, "start": "Bahnhof Barmbek", "expect": ["Stadtpark"] },
+    { "id": "hh-sternschanze-rk6", "city": "Hamburg", "preset": "dauer", "mode": "rt", "km": 6, "start": "Bahnhof Sternschanze", "expect": ["Sternschanzenpark"] },
+    { "id": "hh-hammerpark-intervall", "city": "Hamburg", "preset": "intervall", "mode": "rt", "lap": 1000, "start": "Hammer Park", "expect": ["Hammer Park"] },
     { "id": "b-brandenburger-rk10", "city": "Berlin", "preset": "dauer", "mode": "rt", "km": 10, "start": "Brandenburger Tor", "expect": ["Großer Tiergarten"] },
     { "id": "b-hbf-tempelhof-ab12", "city": "Berlin", "preset": "dauer", "mode": "ab", "km": 12, "start": "Berlin Hauptbahnhof", "end": "Tempelhofer Feld", "expect": ["Großer Tiergarten"] },
     { "id": "b-tempelhof-wettkampf10", "city": "Berlin", "preset": "wettkampf", "mode": "rt", "km": 10, "start": "Tempelhofer Feld", "expect": [] }
