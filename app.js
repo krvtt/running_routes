@@ -4,7 +4,7 @@
 'use strict';
 if (!window.L) { document.getElementById('status').textContent = 'Kartenbibliothek nicht geladen – Seite neu laden.'; return; }
 
-const APP_VERSION = '2.7.0';
+const APP_VERSION = '2.8.0';
 const PROFILE_URL = 'profiles/laufen.brf';
 const DEFAULT_SERVER = 'https://brouter.de';
 const NOMINATIM = 'https://nominatim.openstreetmap.org';
@@ -84,20 +84,22 @@ class RouteErr extends Error { constructor(msg, kind) { super(msg); this.kind = 
 // ---------- Speicher (IndexedDB, Rückfall: nur Sitzung) ----------
 const Store = (() => {
   let dbp = null, memOnly = false;
-  const mem = { kv: new Map(), fav: new Map(), hist: new Map() };
+  const mem = { kv: new Map(), fav: new Map(), hist: new Map(), rate: new Map() };
   function open() {
     if (dbp) return dbp;
     dbp = new Promise((res, rej) => {
       if (!('indexedDB' in window)) { rej(new Error('kein IndexedDB')); return; }
       let r;
-      try { r = indexedDB.open('laufrouten', 1); } catch (e) { rej(e); return; }
+      try { r = indexedDB.open('laufrouten', 2); } catch (e) { rej(e); return; }
       r.onupgradeneeded = () => {
         const d = r.result;
         if (!d.objectStoreNames.contains('kv')) d.createObjectStore('kv');
         if (!d.objectStoreNames.contains('fav')) d.createObjectStore('fav', { keyPath: 'id' });
         if (!d.objectStoreNames.contains('hist')) d.createObjectStore('hist', { keyPath: 'id' });
+        if (!d.objectStoreNames.contains('rate')) d.createObjectStore('rate', { keyPath: 'id' }); // Bewertungen (Version 2)
       };
-      r.onsuccess = () => res(r.result);
+      r.onsuccess = () => { r.result.onversionchange = () => r.result.close(); res(r.result); }; // neuere Version in anderem Fenster nicht blockieren
+      r.onblocked = () => status('Die App ist noch in einem anderen Fenster offen – dort schließen, dann geht es hier weiter.', 'warn');
       r.onerror = () => rej(r.error);
     }).catch((e) => { memOnly = true; throw e; });
     return dbp;
@@ -989,11 +991,18 @@ async function greenVariants(A, B, L, pr, ctx, notes, loop) {
     return route(Object.assign({}, c, { stops: withE(c.stops, c.el, de), acc: acc + de, prev: { acc, dist: v.dist }, reg: (c.reg || 0) + 1,
       el: Object.assign({}, c.el, { lo: c.el.lo - de, hi: c.el.hi - de }) }));
   };
-  const todo = (list, n) => list.filter((v) => v.combo && !v.lapN && !inBand(v, L, pr) && Math.abs(v.err) < 0.4).sort((a, b) => score(a) - score(b)).slice(0, n);
-  const r1 = settled(await Promise.allSettled(todo(out, 3).map(regulate)), []).filter(Boolean);
+  // Reihenfolge: gute Bewertung zuerst, große Längenabweichung bremst etwas. Bis zu drei Runden, solange die
+  // insgesamt beste Grün-Route nicht im Längenbereich liegt.
+  const prio = (v) => score(v) * (1 + Math.abs(v.err));
+  const todo = (list, n) => list.filter((v) => v.combo && !v.lapN && !inBand(v, L, pr) && Math.abs(v.err) < 0.45).sort((a, b) => prio(a) - prio(b)).slice(0, n);
+  const bestOut = () => { const g = out.filter((v) => v.combo && !v.lapN).sort((x, y) => score(x) - score(y))[0]; return g && !inBand(g, L, pr) ? g : null; };
+  const r1 = settled(await Promise.allSettled(todo(out, 4).map(regulate)), []).filter(Boolean);
   out.push(...r1);
-  const bestG = out.filter((v) => v.combo).sort((x, y) => score(x) - score(y))[0];
-  if (bestG && !inBand(bestG, L, pr)) out.push(...settled(await Promise.allSettled(todo(r1, 2).map(regulate)), []).filter(Boolean));
+  if (!bestOut()) return out;
+  const r2 = settled(await Promise.allSettled(todo(r1, 3).map(regulate)), []).filter(Boolean);
+  out.push(...r2);
+  const last = bestOut();
+  if (last && Math.abs(last.err) < 0.45) out.push(...settled(await Promise.allSettled([regulate(last)]), []).filter(Boolean));
   return out;
 }
 // Zu lange Anker-Route: den Anker weglassen, dessen Wegfall der Ziellänge am nächsten kommt
@@ -1041,7 +1050,7 @@ async function loopVariants(A, L, pr, ctx, notes) {
   ]);
   let cands = settled(geoRes, notes);
   const greenOk = green.some((v) => inBand(v, L, pr));
-  const todo = cands.filter((c) => !inBand(c, L, pr)).sort((a, b) => score(a) - score(b)).slice(0, pr.strict ? 3 : (greenOk ? 1 : 2));
+  const todo = cands.filter((c) => !inBand(c, L, pr)).sort((a, b) => score(a) - score(b)).slice(0, pr.strict ? 3 : (greenOk ? 0 : 2));
   const refined = settled(await Promise.allSettled(todo.map((c) => fitLoop(A, L, c.dir, pr, ctx, c.R * L / c.dist, ctx.maxIter - 1))), notes);
   cands = cands.concat(refined);
   cands.forEach((v) => { v.name = (pr.lap ? 'Runde ' : 'Rundkurs ') + compass(v.dir); });
@@ -1115,6 +1124,7 @@ async function compute(again) {
     if (!vs.some((v) => inBand(v, L, pr))) notes.unshift('Keine Variante liegt im Bereich ±' + nf0.format(band(L, pr)) + ' m – beste Alternativen zuerst.');
     const warn = notes.length && !vs.some((v) => inBand(v, L, pr));
     state.variants = vs; state.sel = 0; state.notes = notes; state.statusNote = warn ? notes[0] : null;
+    resetRating();
     renderResults(true);
     await saveHistory();
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
@@ -1201,7 +1211,7 @@ function addInfo(v) {
     L.polyline(seg, { color: cssVar('--ok'), weight: 10, opacity: 0.9, dashArray: '2 10', lineCap: 'round', interactive: false }).addTo(infoLayer);
   }
 }
-function select(i) { state.sel = i; renderResults(false); if (!state.fromHistory) saveHistory(); }
+function select(i) { if (i !== state.sel) resetRating(); state.sel = i; renderResults(false); if (!state.fromHistory) saveHistory(); }
 function renderResults(fit) {
   const pace = presetPace();
   $('resCard').hidden = !state.variants.length;
@@ -1355,10 +1365,93 @@ function loadHistory(id, all) {
   updateCalc();
   const v = Object.assign({}, e.variant, { coords: e.variant.coords.map((c) => [c[0], c[1], c[2] == null ? NaN : c[2]]), colorVar: '--v1', preset: e.preset });
   state.variants = [v]; state.sel = 0; state.notes = []; state.fromHistory = true; state.lastL = e.L; state.lastKey = null;
+  resetRating();
   $('histPanel').hidden = true; $('histBtn').setAttribute('aria-pressed', 'false');
   renderResults(true);
   status('Route vom ' + fmtDate(e.ts) + ' geladen. „Route berechnen“ rechnet sie neu.', 'ok');
   $('resCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ---------- Bewertungen mit Privatzone ----------
+// Gespeichert wird nur die Strecke, nie Start oder Ziel: Um jeden Start- und Zielort liegt eine Privatzone
+// (Kreis 500 m), deren Mitte einmal zufällig bis 250 m vom Ort verschoben wird und nur im Gerät bleibt.
+// Alles in der Zone wird abgeschnitten. Die Schnittkanten verraten so auch nach vielen Runden nur die
+// Zonenmitte, nicht den Ort. Dazu nur das Datum, keine Uhrzeit.
+const ZONE_R = 500, ZONE_OFF = 250, ZONE_SAME = 200;
+const RATE_TAGS = { up: ['Viel Grün', 'Schöne Runde', 'Wenig Stopps', 'Länge passt'],
+  down: ['Zu viel Straße', 'Wende oder Stichweg', 'Hin und zurück', 'Park nicht genutzt', 'Umweg ohne Sinn', 'Zu viele Ampeln', 'Weg gesperrt', 'Länge passt nicht'] };
+const rate = { val: 0, tags: new Set() };
+async function zoneFor(p) {
+  const zones = (await Store.get('zones')) || [];
+  let z = zones.find((x) => hav(x.p, p) < ZONE_SAME); // derselbe Ort (z. B. GPS-Streuung) behält seine Zone
+  if (!z) {
+    const a = Math.random() * 2 * Math.PI, d = Math.sqrt(Math.random()) * ZONE_OFF;
+    z = { p: { lat: p.lat, lon: p.lon }, c: proj(p).from({ x: d * Math.cos(a), y: d * Math.sin(a) }) };
+    zones.push(z);
+    await Store.set('zones', zones);
+  }
+  return z.c;
+}
+function cutZones(coords, centers) {
+  const segs = [];
+  let cur = [];
+  coords.forEach((c) => {
+    if (centers.some((z) => hav(z, { lat: c[1], lon: c[0] }) < ZONE_R)) { if (cur.length > 1) segs.push(cur); cur = []; return; }
+    cur.push([Math.round(c[0] * 1e5) / 1e5, Math.round(c[1] * 1e5) / 1e5]);
+  });
+  if (cur.length > 1) segs.push(cur);
+  return segs;
+}
+async function saveRating() {
+  const v = state.variants[state.sel];
+  if (!v || !rate.val) { status('Erst „Gut“ oder „Nicht gut“ wählen.', 'warn'); return; }
+  const pr = settings.preset, loop = isLoopMode() || !state.end || (state.start && hav(state.start, state.end) < 150);
+  const centers = [];
+  if (state.start) centers.push(await zoneFor(state.start));
+  if (!loop && state.end) centers.push(await zoneFor(state.end));
+  const m = v.m || {};
+  const r = {
+    id: uid(), date: new Date().toISOString().slice(0, 10), app: APP_VERSION, rating: rate.val, tags: Array.from(rate.tags),
+    note: $('rateNote').value.trim().slice(0, 200), preset: pr, loop, target: Math.round(state.lastL || 0), rank: state.sel + 1,
+    // Art der Variante ohne Park- oder Straßennamen (ein Name in Startnähe würde die Gegend verraten)
+    name: v.name.replace(/:.*$/, '').replace(/^Über .*/, 'Über Grünflächen').replace(/ (am Wasser|im Park)$/, ''), dist: Math.round(v.dist), score: v.cost ? Math.round(score(v) * 1000) / 1000 : null,
+    m: { green: Math.round(m.green || 0), greenRun: Math.round(m.greenRun || 0), street: Math.round(m.street || 0), big: Math.round(m.big || 0),
+      signals: (m.signals || []).length, cross: (m.cross || []).length, zebras: (m.zebras || []).length, turns: v.turns,
+      streetRevs: (v.revs || []).filter((x) => x.street).length, back: Math.round(v.back || 0) },
+    segs: cutZones(v.coords, centers)
+  };
+  await Store.put('rate', r);
+  $('rateSave').textContent = 'Gespeichert'; $('rateSave').disabled = true;
+  status('Bewertung gespeichert – ohne Start und Ziel.' + (r.segs.length ? '' : ' Die Strecke liegt ganz in der Privatzone, gespeichert sind nur die Kennzahlen.'), 'ok');
+  refreshRateInfo();
+}
+function resetRating() {
+  rate.val = 0; rate.tags.clear();
+  if (!$('rateBlock')) return;
+  $('rateNote').value = ''; $('rateSave').textContent = 'Bewertung speichern'; $('rateSave').disabled = false;
+  renderRateUI();
+}
+function renderRateUI() {
+  $('rateUp').setAttribute('aria-pressed', String(rate.val > 0));
+  $('rateDown').setAttribute('aria-pressed', String(rate.val < 0));
+  const tags = rate.val > 0 ? RATE_TAGS.up : (rate.val < 0 ? RATE_TAGS.down : []);
+  $('rateTags').innerHTML = tags.map((t) => '<button type="button" data-tag="' + esc(t) + '" aria-pressed="' + rate.tags.has(t) + '">' + esc(t) + '</button>').join('');
+  $('rateTags').querySelectorAll('[data-tag]').forEach((b) => b.addEventListener('click', () => {
+    const t = b.dataset.tag;
+    if (rate.tags.has(t)) rate.tags.delete(t); else rate.tags.add(t);
+    b.setAttribute('aria-pressed', String(rate.tags.has(t)));
+  }));
+}
+async function refreshRateInfo() {
+  const n = (await Store.all('rate')).length;
+  $('rateInfo').textContent = n ? n + ' Bewertung' + (n === 1 ? '' : 'en') + ' gespeichert (ohne Start und Ziel).' : 'Noch keine Bewertungen.';
+  $('rateExport').disabled = !n; $('rateClear').disabled = !n;
+}
+async function exportRatings() {
+  const list = (await Store.all('rate')).sort((a, b) => (a.date < b.date ? -1 : 1));
+  const data = { app: 'laufrouten-hamburg', kind: 'bewertungen', format: 1, exported: new Date().toISOString().slice(0, 10), ratings: list };
+  download('laufrouten-bewertungen-' + data.exported + '.json', JSON.stringify(data), 'application/json');
+  status(list.length + ' Bewertungen exportiert. Die Datei enthält keine Start- und Zielorte.', 'ok');
 }
 
 // ---------- Favoriten ----------
@@ -1379,7 +1472,8 @@ function renderFavs() {
 
 // ---------- Export / Import ----------
 async function exportData() {
-  const data = { app: 'laufrouten-hamburg', format: 1, exported: new Date().toISOString(), settings, favorites: await Store.all('fav'), history: await Store.all('hist') };
+  const data = { app: 'laufrouten-hamburg', format: 1, exported: new Date().toISOString(), settings, favorites: await Store.all('fav'), history: await Store.all('hist'),
+    ratings: await Store.all('rate'), zones: (await Store.get('zones')) || [] }; // Sicherung fürs eigene Gerät, enthält echte Orte
   download('laufrouten-backup-' + new Date().toISOString().slice(0, 10) + '.json', JSON.stringify(data), 'application/json');
   status('Backup gespeichert (' + data.favorites.length + ' Favoriten, ' + data.history.length + ' Routen).', 'ok');
 }
@@ -1390,6 +1484,12 @@ async function importData(file) {
   let nf = 0, nh = 0;
   for (const f of data.favorites || []) if (f && f.id && typeof f.lat === 'number' && typeof f.lon === 'number') { await Store.put('fav', { id: String(f.id), name: String(f.name || 'Favorit').slice(0, 60), lat: f.lat, lon: f.lon }); nf++; }
   for (const h of data.history || []) if (h && h.id && h.variant && Array.isArray(h.variant.coords)) { await Store.put('hist', h); nh++; }
+  for (const r of data.ratings || []) if (r && r.id && Array.isArray(r.segs)) await Store.put('rate', r);
+  if (Array.isArray(data.zones) && data.zones.length) { // Zonen zusammenführen, vorhandene behalten
+    const zones = (await Store.get('zones')) || [];
+    data.zones.forEach((z) => { if (z && z.p && z.c && !zones.some((x) => hav(x.p, z.p) < ZONE_SAME)) zones.push(z); });
+    await Store.set('zones', zones);
+  }
   if (data.settings && typeof data.settings === 'object') {
     ['basePace', 'server', 'tiles', 'theme'].forEach((k) => { if (data.settings[k] != null) settings[k] = data.settings[k]; });
     await saveSettings(); applySettingsUI();
@@ -1534,7 +1634,7 @@ function togglePanel(id) {
   $(id).hidden = !$(id).hidden;
   $('histBtn').setAttribute('aria-pressed', String(!$('histPanel').hidden));
   $('setBtn').setAttribute('aria-pressed', String(!$('setPanel').hidden));
-  if (!$(id).hidden) { if (id === 'histPanel') renderHistory(); else { renderFavs(); refreshStoreInfo(); } $(id).scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+  if (!$(id).hidden) { if (id === 'histPanel') renderHistory(); else { renderFavs(); refreshStoreInfo(); refreshRateInfo(); } $(id).scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 }
 $('histBtn').addEventListener('click', () => togglePanel('histPanel'));
 $('setBtn').addEventListener('click', () => togglePanel('setPanel'));
@@ -1558,6 +1658,16 @@ $('serverInput').addEventListener('change', () => {
 $('tileSel').addEventListener('change', () => { settings.tiles = $('tileSel').value; setTiles(settings.tiles); saveSettings(); });
 $('themeSel').addEventListener('change', () => { settings.theme = $('themeSel').value; applyTheme(); saveSettings(); });
 $('exportBtn').addEventListener('click', exportData);
+$('rateUp').addEventListener('click', () => { rate.val = rate.val > 0 ? 0 : 1; rate.tags.clear(); renderRateUI(); });
+$('rateDown').addEventListener('click', () => { rate.val = rate.val < 0 ? 0 : -1; rate.tags.clear(); renderRateUI(); });
+$('rateSave').addEventListener('click', saveRating);
+$('rateExport').addEventListener('click', exportRatings);
+let rateClearArmed = false;
+$('rateClear').addEventListener('click', async () => {
+  if (!rateClearArmed) { rateClearArmed = true; $('rateClear').textContent = 'Wirklich löschen?'; setTimeout(() => { rateClearArmed = false; $('rateClear').textContent = 'Löschen'; }, 4000); return; }
+  rateClearArmed = false; $('rateClear').textContent = 'Löschen';
+  await Store.clear('rate'); refreshRateInfo(); status('Bewertungen gelöscht.', 'ok');
+});
 $('importBtn').addEventListener('click', () => $('importFile').click());
 $('importFile').addEventListener('change', () => { const f = $('importFile').files[0]; if (f) importData(f); $('importFile').value = ''; });
 if (window.matchMedia) { const mq = window.matchMedia('(prefers-color-scheme: dark)'); if (mq.addEventListener) mq.addEventListener('change', redraw); }

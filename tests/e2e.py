@@ -249,6 +249,24 @@ def main():
             page.click("#gpxBtn")
         gpx = open(dl.value.path()).read()
         check("GPX-Export", gpx.startswith("<?xml") and gpx.count("<trkpt") > 10, dl.value.suggested_filename)
+
+        # Bewertung: nur Strecke außerhalb der Privatzonen, ohne Orte und Uhrzeit
+        page.click("#rateDown")
+        page.click("#rateTags button >> nth=0")
+        page.fill("#rateNote", "Testnotiz")
+        page.click("#rateSave")
+        page.wait_for_function("document.getElementById('rateSave').disabled")
+        page.click("#setBtn")
+        with page.expect_download() as dl3:
+            page.click("#rateExport")
+        raw = open(dl3.value.path()).read()
+        r = json.loads(raw)["ratings"][0]
+        pts = [p for s in r["segs"] for p in s]
+        near = min((hav(p, places[k]) for p in pts for k in ("start", "ziel")), default=99999)
+        clean = not any(w in raw for w in ("Arbeit", "Zuhause", "label", "lat\"")) and len(r["date"]) == 10
+        check("Bewertung ohne Start und Ziel", r["rating"] == -1 and r["tags"] and clean and near > 250 and (pts or a.scale < 1),  # kurze Teststrecke: ganz in der Zone
+              f"{len(pts)} Punkte, nächster {near:.0f} m von Start/Ziel, Stichworte {r['tags']}")
+        page.click("[data-close=setPanel]")
         if a.shots:
             page.screenshot(path=f"{a.shots}/ab.png", full_page=True)
 

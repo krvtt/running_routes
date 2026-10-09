@@ -55,6 +55,15 @@
       <p class="hint" id="storeInfo">Favoriten, Verlauf und Einstellungen bleiben nur auf diesem Gerät.</p>
     </div>
     <div class="grid-pt">
+      <span class="lbl">Bewertungen</span>
+      <p class="hint" id="rateInfo">Noch keine Bewertungen.</p>
+      <div class="row">
+        <button type="button" class="grow" id="rateExport">Bewertungen exportieren</button>
+        <button type="button" class="grow danger" id="rateClear">Löschen</button>
+      </div>
+      <p class="hint">Die Datei enthält Strecken ohne Start und Ziel, Kennzahlen, Datum und deine Stichworte – zum Weitergeben fürs Verbessern der Routen.</p>
+    </div>
+    <div class="grid-pt">
       <label for="themeSel">Farbschema</label>
       <select id="themeSel"><option value="auto">Automatisch</option><option value="light">Hell</option><option value="dark">Dunkel</option></select>
       <label for="tileSel">Kartenkacheln</label>
@@ -157,6 +166,17 @@
       <button type="button" class="grow" id="shareBtn" hidden>GPX teilen</button>
     </div>
     <button type="button" id="againBtn">Andere Varianten</button>
+    <div class="grid-pt" id="rateBlock">
+      <span class="lbl">Route bewerten</span>
+      <div class="seg" role="group" aria-label="Bewertung">
+        <button type="button" id="rateUp" aria-pressed="false">Gut</button>
+        <button type="button" id="rateDown" aria-pressed="false">Nicht gut</button>
+      </div>
+      <div class="chips" id="rateTags"></div>
+      <input type="text" id="rateNote" maxlength="200" placeholder="Notiz (optional, keine Adressen)" autocomplete="off">
+      <button type="button" id="rateSave">Bewertung speichern</button>
+      <p class="hint">Gespeichert wird nur die Strecke, ohne Start und Ziel: Rund um beide fällt ein Bereich von etwa 500 m weg. Bleibt auf diesem Gerät; teilen nur über „Bewertungen exportieren“ in den Einstellungen.</p>
+    </div>
     <p class="hint">Karte: Zahlen = km. Rote Punkte = Ampel (sicher, aber Wartezeit). Orange Kästchen = Haupt- oder Nebenstraße ohne Ampel oder Zebrastreifen queren; die Zahl schätzt Verkehr und Risiko von 1 (ruhig) bis 6 (stark). Route vor dem Loslaufen prüfen: OSM kann über gesperrte oder private Wege führen.</p>
   </section>
 

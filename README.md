@@ -16,6 +16,7 @@ Läuft im Browser auf Android, iOS, Windows und macOS und lässt sich als App au
 - **Intervall-Runden** um nahe Parks oder ohne Querung am Start, optionale Markierung für Steigerungen
 - **GPX-Export** für OsmAnd, Organic Maps oder Sportuhren
 - **Favoriten, Verlauf und Backup** (Export/Import als JSON)
+- **Bewertungen** je Route (gut/nicht gut, Stichworte), exportierbar ohne Start und Ziel
 - Heller und dunkler Modus, für die Bedienung unterwegs ausgelegt
 
 ## So funktioniert es
@@ -37,12 +38,15 @@ Das Profil unterscheidet Wege im Grünen, sonstige Wege, Gehwege an Straßen (`f
 | Daten | Wohin |
 |---|---|
 | Favoriten, Verlauf, Einstellungen | nur im Browser des Geräts (IndexedDB) |
+| Bewertungen | nur im Gerät; „Bewertungen exportieren“ erzeugt eine Datei ohne Start und Ziel (siehe unten) |
 | Start-, Ziel- und Zwischenpunkte | Routing-Server (Standard: brouter.de) |
 | Suchbegriffe der Adresssuche | Nominatim (OpenStreetMap) |
 | Kartenausschnitt für Grünflächen | Overpass-API (OpenStreetMap), nur außerhalb der vorberechneten Regionen, einmal je Gebiet und Monat |
 | Kartenausschnitt | Kachelserver von OpenStreetMap |
 
 Die Daten hängen an der Adresse der App. Für einen Gerätewechsel: Einstellungen → Exportieren bzw. Importieren.
+
+**Bewertungen:** Gespeichert wird nur die Strecke, nie Start oder Ziel. Um jeden Start- und Zielort liegt eine Privatzone: ein Kreis mit 500 m Radius, dessen Mitte einmal zufällig bis 250 m vom Ort verschoben wird und nur im Gerät bleibt. Alles innerhalb wird abgeschnitten. So verraten die Schnittkanten auch nach vielen Bewertungen vom selben Ort nur die Zonenmitte. Dazu kommen nur das Datum (ohne Uhrzeit), Kennzahlen, Stichworte und die Art der Variante ohne Park- oder Straßennamen.
 
 ## Eigener Routing-Server
 
