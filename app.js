@@ -870,7 +870,8 @@ function candidates(Bq, L, anchors, rings, f, loop) {
   rs.slice(0, 12).forEach(({ R, nS, nB }) => {
     if (loop) {
       const s0 = nS.s; // Fenster um vier Mittelpunkte: gegenüber (Halbrunde/Runde), seitlich, nah
-      [s0 + R.len / 2, s0 + R.len / 4, s0 - R.len / 4, s0].forEach((c) => add([{ t: 'arc', R, s1: c, len: 0, dir: 1 }], { k: 0, mode: 'both', lo: 160, hi: R.len }));
+      // gegenüber nur ab der halben Runde (sonst wäre es quer durch und zurück)
+      [s0 + R.len / 2, s0 + R.len / 4, s0 - R.len / 4, s0].forEach((c, i) => add([{ t: 'arc', R, s1: c, len: 0, dir: 1 }], { k: 0, mode: 'both', lo: i ? 160 : R.len / 2, hi: R.len }));
       add([{ t: 'arc', R, s1: s0, len: R.len, dir: 1 }], { k: 0, mode: 'end', lo: 0, hi: 0.6 * R.len }, 0.85); // Runde und ein Stück weiter
       if (R.len >= 600) add([{ t: 'arc', R, s1: s0, len: R.len, dir: 1 }], { k: 0, mode: 'end', lo: 0.6 * R.len, hi: 2 * R.len }, 0.7); // mehrere Runden
     } else {
@@ -977,8 +978,12 @@ async function greenVariants(A, B, L, pr, ctx, notes, loop) {
     const c = v.combo;
     if (!c.el) return v.dist > L ? shorten(A, B, L, v, P, ctx, loop) : null;
     const acc = c.acc || 0;
-    let de = (L - v.dist) / (FA * clamp(v.dist / c.est, 0.8, 1.6));
-    if (c.prev) { const slope = (v.dist - c.prev.dist) / (acc - c.prev.acc); if (isFinite(slope) && slope > 0.3 && slope < 4) de = (L - v.dist) / slope; }
+    // Steigung der Schätzung an dieser Stelle (kann negativ sein: längerer Bogen, kürzere Zuwege), mal beobachtetem Faktor
+    const est = (e) => estimate(withE(c.stops, c.el, e), Bq, 1.3).est;
+    let slope = (est(50) - est(-50)) / 100 * clamp(v.dist / c.est, 0.7, 1.6);
+    if (c.prev) { const s = (v.dist - c.prev.dist) / (acc - c.prev.acc); if (isFinite(s) && Math.abs(s) > 0.2 && Math.abs(s) < 4) slope = s; }
+    if (!isFinite(slope) || Math.abs(slope) < 0.2) return null;
+    let de = (L - v.dist) / slope;
     de = clamp(de, c.el.lo, c.el.hi);
     if (Math.abs(de) < 60) return null;
     return route(Object.assign({}, c, { stops: withE(c.stops, c.el, de), acc: acc + de, prev: { acc, dist: v.dist }, reg: (c.reg || 0) + 1,
