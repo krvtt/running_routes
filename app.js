@@ -374,14 +374,21 @@ function shape(v) {
     revs.push({ at, arm, street: !trailAt(at - arm / 2) });
     m += j;
   }
-  let dbl = 0;
-  const seen = new Map();
+  // Rückweg nah am Hinweg (≤ ~50 m, auch auf parallelen Wegen): Straße 0,6, Weg 0,25 pro Meter.
+  // Eine Runde um den Park schlägt so ein Hin und Zurück auf zwei Parallelwegen.
+  let dbl = 0, backStreet = 0, backTrail = 0;
+  const seen = new Map(), near = new Map();
   for (let s = 0; s < v.dist; s += 20) {
-    const p = pointAt(v, s), k = Math.round(p[0] * 3600) + ':' + Math.round(p[1] * 2200), f = seen.get(k);
-    if (f == null) seen.set(k, s); else if (s - f > 200 && !trailAt(s)) dbl += 20;
+    const p = pointAt(v, s), k = Math.round(p[0] * 3600) + ':' + Math.round(p[1] * 2200), f = seen.get(k), street = !trailAt(s);
+    if (f == null) seen.set(k, s); else if (s - f > 200 && street) dbl += 20;
+    const gy = Math.round(p[0] * 2220), gx = Math.round(p[1] * 1330);
+    let back = false;
+    for (let i = -1; i <= 1 && !back; i++) for (let j = -1; j <= 1; j++) { const t = near.get((gy + i) + ':' + (gx + j)); if (t != null && s - t > 300) { back = true; break; } }
+    if (!near.has(gy + ':' + gx)) near.set(gy + ':' + gx, s);
+    if (back) { if (street) backStreet += 20; else backTrail += 20; }
   }
-  v.revs = revs; v.dblStreet = dbl;
-  v.pen = revs.reduce((s, r) => s + (r.street ? 400 + 2 * r.arm : 60 + 0.3 * r.arm), 0) + 0.6 * dbl;
+  v.revs = revs; v.dblStreet = dbl; v.back = backStreet + backTrail;
+  v.pen = revs.reduce((s, r) => s + (r.street ? 400 + 2 * r.arm : 60 + 0.3 * r.arm), 0) + 0.6 * backStreet + 0.25 * backTrail;
 }
 // Abbiegungen aus der Geometrie: Richtungswechsel > 50° zwischen Abschnitten ≥ 12 m, Wechsel innerhalb 25 m zählen einmal
 function countTurns(coords) {
@@ -432,7 +439,9 @@ function overlap(a, b) {
 function tierOf(v, L, pr) { return inBand(v, L, pr) ? 0 : (Math.abs(v.dist - L) <= band2(L, pr) ? 1 : 2); }
 function pickVariants(vs, L, pr, count) {
   const ranked = rank(vs, L, pr), out = [];
-  const ok = (v) => out.indexOf(v) < 0 && !out.some((o) => overlap(v, o) > 0.75);
+  const fam = (v) => (v.combo ? v.combo.key : null), main = (v) => (v.combo ? v.combo.main || (v.combo.R && v.combo.R.fid) : null);
+  const ok = (v) => out.indexOf(v) < 0 && !out.some((o) => overlap(v, o) > 0.75 || (fam(v) && fam(o) === fam(v))) && // nachgeregelte Fassung derselben Route nur einmal
+    (!main(v) || out.filter((o) => main(o) === main(v)).length < 2);
   for (const v of ranked) if (ok(v)) { out.push(v); break; }
   for (const v of ranked.filter((x) => tierOf(x, L, pr) < 2).sort((a, b) => score(a) - score(b))) { if (out.length >= count) break; if (ok(v)) out.push(v); }
   for (const v of ranked) { if (out.length >= count) break; if (ok(v)) out.push(v); }
@@ -716,7 +725,7 @@ function bboxArea(lines) {
 // Eine Parkrunde ist der Umriss einer Grünfläche oder eines Sees, auf die echten Wege eingerastet
 // (vorberechnet, siehe tools/green_anchors.py; außerhalb der Regionen grob aus dem Umriss).
 // Kandidaten laufen Bögen oder ganze Runden darauf; die Bogenlänge ist die Stellschraube für die Länge.
-const FA = 1.05; // Bogenlänge → gelaufene Meter
+const FA = 0.88; // Bogenlänge → gelaufene Meter (gemessen: Routen sind kürzer als der eingerastete Umriss)
 const mod = (a, n) => ((a % n) + n) % n;
 const dxy = (p, q) => Math.hypot(q.x - p.x, q.y - p.y);
 // Grobe Parkrunden aus Overpass-Umrissen: Umriss 15 m nach innen (Park) bzw. 20 m nach außen (See)
@@ -976,7 +985,7 @@ async function greenVariants(A, B, L, pr, ctx, notes, loop) {
       el: Object.assign({}, c.el, { lo: c.el.lo - de, hi: c.el.hi - de }) }));
   };
   const todo = (list, n) => list.filter((v) => v.combo && !v.lapN && !inBand(v, L, pr) && Math.abs(v.err) < 0.4).sort((a, b) => score(a) - score(b)).slice(0, n);
-  const r1 = settled(await Promise.allSettled(todo(out, 4).map(regulate)), []).filter(Boolean);
+  const r1 = settled(await Promise.allSettled(todo(out, 3).map(regulate)), []).filter(Boolean);
   out.push(...r1);
   const bestG = out.filter((v) => v.combo).sort((x, y) => score(x) - score(y))[0];
   if (bestG && !inBand(bestG, L, pr)) out.push(...settled(await Promise.allSettled(todo(r1, 2).map(regulate)), []).filter(Boolean));

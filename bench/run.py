@@ -111,7 +111,7 @@ def shape(coords, rows, dist):
             revs.append({"at": round(at), "arm": round(arm), "street": cls_at(at - arm / 2) not in ("green", "path")})
             m += j
         m += 1
-    seen, dbl, s, i = {}, 0, 0.0, 0
+    seen, near, dbl, back, s, i = {}, {}, 0, 0, 0.0, 0
     while s < cum[-1]:
         while i < len(cum) - 2 and cum[i + 1] < s:
             i += 1
@@ -122,8 +122,12 @@ def shape(coords, rows, dist):
             seen[k] = s
         elif (s - seen[k]) * scale > 200 and cls_at(s * scale) not in ("green", "path"):
             dbl += 20
+        g = (round(lat * 2220), round(lon * 1330))  # Rückweg nah am Hinweg (≤ ~50 m, auch parallel)
+        if any((s - near[(g[0] + a, g[1] + b)]) * scale > 300 for a in (-1, 0, 1) for b in (-1, 0, 1) if (g[0] + a, g[1] + b) in near):
+            back += 20
+        near.setdefault(g, s)
         s += 20 / scale
-    return revs, dbl
+    return revs, dbl, back
 
 
 def evaluate(feature):
@@ -172,7 +176,7 @@ def evaluate(feature):
     tot = tot or 1
     km = max(dist / 1000, 0.1)
     rows = [(e * dist / tot, k) for e, k in rows]
-    revs, dbl = shape(coords, rows, dist)
+    revs, dbl, back = shape(coords, rows, dist)
     return {
         "dist": round(dist), "cost_per_m": round(float(p["cost"]) / max(dist, 1), 3),
         "green": round(green / tot, 3), "street": round(street / tot, 3), "sidewalk": round(sidewalk / tot, 3),
@@ -180,6 +184,7 @@ def evaluate(feature):
         "signals_km": round(signals / km, 2), "crossings_km": round(crossings / km, 2),
         "turns_km": round(turns_per_km(coords, dist), 2), "spurs": spurs(coords), "coords": coords,
         "green_run": round(green_run * dist / tot), "street_revs": sum(1 for r in revs if r["street"]), "dbl_street": dbl,
+        "back": round(back / max(dist, 1), 3),
         "rows": [[round(e), k] for e, k in rows],
     }
 
@@ -302,7 +307,7 @@ def run_app(pw, app_url, brouter, cases, places, mess_pid):
             m = evaluate(g) if g is not None and abs(abw) <= 0.05 else dict(orig)
             m["mess"] = "neutral" if g is not None and abs(abw) <= 0.05 else "original"
             m["mess_abw"] = round(abw, 3) if abw is not None else None
-            for k in ("dist", "cost_per_m", "turns_km", "spurs", "street_revs", "dbl_street", "rows"):  # Geometrie immer von der Originalroute
+            for k in ("dist", "cost_per_m", "turns_km", "spurs", "street_revs", "dbl_street", "back", "rows"):  # Geometrie immer von der Originalroute
                 m[k] = orig[k]
             m["coords"] = orig["coords"]
             m["name"] = v["name"]
@@ -328,14 +333,15 @@ def summarize(results, cases):
     by_id = {c["id"]: c for c in cases}
     agg = {"cases": 0, "ok": 0, "green": 0.0, "street": 0.0, "sidewalk": 0.0, "signals_km": 0.0, "crossings_km": 0.0,
            "turns_km": 0.0, "spurs": 0, "in_band": 0, "area_hits": 0, "area_total": 0, "requests": 0, "seconds": 0.0,
-           "best_green": 0.0, "mess_max": 0.0, "green_first": 0, "mess_orig": 0, "green_run": 0.0, "street_revs": 0, "dbl_street": 0.0}
+           "best_green": 0.0, "mess_max": 0.0, "green_first": 0, "mess_orig": 0, "green_run": 0.0, "street_revs": 0, "dbl_street": 0.0,
+           "back": 0.0}
     for r in results:
         agg["cases"] += 1
         if not r.get("ok"):
             continue
         c, v = by_id[r["id"]], r["variants"][0]
         agg["ok"] += 1
-        for k in ("green", "street", "sidewalk", "signals_km", "crossings_km", "turns_km", "green_run", "dbl_street"):
+        for k in ("green", "street", "sidewalk", "signals_km", "crossings_km", "turns_km", "green_run", "dbl_street", "back"):
             agg[k] += v.get(k, 0)
         agg["street_revs"] += sum(x.get("street_revs", 0) for x in r["variants"])
         agg["best_green"] += max(x["green"] for x in r["variants"])
@@ -352,7 +358,8 @@ def summarize(results, cases):
         agg["requests"] += r.get("requests", 0)
         agg["seconds"] += r.get("seconds", 0)
     n = max(agg["ok"], 1)
-    for k in ("green", "street", "sidewalk", "signals_km", "crossings_km", "turns_km", "requests", "seconds", "best_green", "green_run", "dbl_street"):
+    for k in ("green", "street", "sidewalk", "signals_km", "crossings_km", "turns_km", "requests", "seconds", "best_green", "green_run", "dbl_street",
+              "back"):
         agg[k] = round(agg[k] / n, 3)
     return agg
 
@@ -370,6 +377,7 @@ def report(all_results, cases, out_dir):
             ("Querungen ohne Ampel pro km", lambda s: s["crossings_km"]), ("Abbiegungen pro km", lambda s: s["turns_km"]),
             ("Längstes Stück im Grünen (km)", lambda s: round(s["green_run"] / 1000, 2)),
             ("Straße doppelt gelaufen (m)", lambda s: round(s["dbl_street"])),
+            ("Rückweg nah am Hinweg (Anteil)", lambda s: pct(s["back"])),
             ("Wenden auf Straßen (alle Varianten)", lambda s: s["street_revs"]),
             ("Stichwege (alle Varianten)", lambda s: s["spurs"]), ("Länge im Bereich ±5 %", lambda s: f"{s['in_band']}/{s['ok']}"),
             ("Erwartete Grünflächen genutzt", lambda s: f"{s['area_hits']}/{s['area_total']}"),
@@ -388,18 +396,18 @@ def report(all_results, cases, out_dir):
                 lines.append(f"Hinweise {n}: " + " · ".join(r["notes"]))
         lines.append("")
         lines += [f"![Karte {c['id']}](maps/{c['id']}.png)", ""]  # erzeugt von bench/maps.py
-        lines.append("| Version | Variante | Länge | Abw. | Grün | am Stück | Straße | Gehweg | Ampeln/km | ohne Ampel/km | Abb./km | Wenden Str. | Str. doppelt | Grünflächen (m) | Messung |")
-        lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+        lines.append("| Version | Variante | Länge | Abw. | Grün | am Stück | Straße | Gehweg | Ampeln/km | ohne Ampel/km | Abb./km | Wenden Str. | Str. doppelt | Rückweg nah | Grünflächen (m) | Messung |")
+        lines.append("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
         for n in names:
             r = next((x for x in all_results[n] if x["id"] == c["id"]), None)
             if not r or not r.get("ok"):
-                lines.append(f"| {n} | Fehler: {(r or {}).get('error') or (r or {}).get('status', '?')} | | | | | | | | | | | | | |")
+                lines.append(f"| {n} | Fehler: {(r or {}).get('error') or (r or {}).get('status', '?')} | | | | | | | | | | | | | | |")
                 continue
             for v in r["variants"]:
                 areas = ", ".join(f"{k}: {val}" for k, val in v["areas"].items()) or "–"
                 lines.append(f"| {n} | {v['name']} | {v['dist']} | {v['dev']:+d} | {pct(v['green'])} | {v.get('green_run', 0) / 1000:.1f} km | "
                              f"{pct(v['street'])} | {pct(v['sidewalk'])} | {v['signals_km']} | {v['crossings_km']} | {v['turns_km']} | "
-                             f"{v.get('street_revs', 0)} | {v.get('dbl_street', 0)} m | {areas} | {v.get('mess', '')} |")
+                             f"{v.get('street_revs', 0)} | {v.get('dbl_street', 0)} m | {pct(v.get('back', 0))} | {areas} | {v.get('mess', '')} |")
         lines.append("")
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "report.md"), "w") as f:

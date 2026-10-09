@@ -182,10 +182,15 @@ def main():
         en = places.get(f"{c['end']}, {c['city']}") if c.get("end") else None
         start = (st["lon"], st["lat"]) if st else None
         end = (en["lon"], en["lat"]) if en else None
-        w, h = to_xy((bbox[2], bbox[3]))
-        fig, axes = plt.subplots(1, len(versions), figsize=(7 * len(versions), 7 * h / max(w, 1) + 0.6), squeeze=False)
+        fig, axes = plt.subplots(1, len(versions), figsize=(7 * len(versions), 7.4), squeeze=False)
         for ax, v in zip(axes[0], versions):
             draw(ax, feats, rings, per[v], start, end, to_xy, f"{c['id']} – {v}")
+            vp = [to_xy(p) for rt in per[v] for p in rt["coords"]]
+            if vp:  # je Version auf ihre Routen zoomen
+                x0, x1, y0, y1 = min(q[0] for q in vp), max(q[0] for q in vp), min(q[1] for q in vp), max(q[1] for q in vp)
+                r = max(x1 - x0, y1 - y0) / 2 + 250
+                ax.set_xlim((x0 + x1) / 2 - r, (x0 + x1) / 2 + r)
+                ax.set_ylim((y0 + y1) / 2 - r, (y0 + y1) / 2 + r)
         fig.text(0.99, 0.005, "Kartendaten © OpenStreetMap-Mitwirkende", ha="right", fontsize=7, color="#666")
         fig.tight_layout()
         path = os.path.join(a.out, c["id"] + ".png")
