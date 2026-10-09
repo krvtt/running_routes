@@ -275,6 +275,7 @@ def run_app(pw, app_url, brouter, cases, places, mess_pid):
         res["status"] = page.inner_text("#status")
         res["requests"] = len(captured)
         res["notes"] = page.evaluate("window.__laufrouten.state.notes || []")
+        res["cands"] = page.evaluate("window.__laufrouten.state.cands || []")  # alle gerechneten Kandidaten (neuere Versionen)
         res["band"] = page.evaluate("(() => { const T = window.__laufrouten; return T.band ? T.band(T.state.lastL, T.PRESETS[T.settings.preset]) : null; })()")
         bodies = {}
         for r in captured:

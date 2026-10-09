@@ -142,12 +142,29 @@ def main():
     versions = a.versions.split() or list(data["routes"])[:2]
     places = json.load(open(os.path.join(os.path.dirname(a.routes), "places.json")))
     os.makedirs(a.out, exist_ok=True)
+    # Je Stadt einmal den Ausschnitt aller Fälle aus dem großen Extrakt schneiden (schneller als je Fall)
+    city_pbf, tmp_all = {}, tempfile.mkdtemp()
+    for city in sorted({c["city"] for c in data["cases"]}):
+        src = next(iter(glob.glob(os.path.join(a.osm, city.lower() + "*.osm.pbf"))), None)
+        pts = [p for c in data["cases"] if c["city"] == city for v in versions for rt in data["routes"].get(v, {}).get(c["id"], [])
+               for p in rt["coords"]]
+        if not src or not pts:
+            continue
+        out = os.path.join(tmp_all, city.lower() + ".osm.pbf")
+        w, s = min(p[0] for p in pts) - 0.02, min(p[1] for p in pts) - 0.02
+        e, n = max(p[0] for p in pts) + 0.02, max(p[1] for p in pts) + 0.02
+        try:
+            subprocess.run(["osmium", "extract", "-b", f"{w},{s},{e},{n}", src, "-o", out, "--overwrite", "-s", "smart"],
+                           check=True, capture_output=True)
+            city_pbf[city] = out
+        except (subprocess.CalledProcessError, OSError) as e:
+            print(f"  {city}: Ausschnitt fehlgeschlagen ({e})", flush=True)
     for c in data["cases"]:
         per = {v: data["routes"].get(v, {}).get(c["id"], []) for v in versions}
         pts = [p for rs in per.values() for rt in rs for p in rt["coords"]]
         if not pts:
             continue
-        pbf = next(iter(glob.glob(os.path.join(a.osm, c["city"].lower() + "*.osm.pbf"))), None)
+        pbf = city_pbf.get(c["city"])
         lons, lats = [p[0] for p in pts], [p[1] for p in pts]
         mlat = (min(lats) + max(lats)) / 2
         dx, dy = 300 / (111320 * math.cos(math.radians(mlat))), 300 / 111320
@@ -172,7 +189,7 @@ def main():
         fig.text(0.99, 0.005, "Kartendaten © OpenStreetMap-Mitwirkende", ha="right", fontsize=7, color="#666")
         fig.tight_layout()
         path = os.path.join(a.out, c["id"] + ".png")
-        fig.savefig(path, dpi=80)
+        fig.savefig(path, dpi=110)
         plt.close(fig)
         try:  # Palette-PNG: deutlich kleiner
             from PIL import Image

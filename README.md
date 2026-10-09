@@ -10,9 +10,10 @@ Läuft im Browser auf Android, iOS, Windows und macOS und lässt sich als App au
 
 - **A → B oder Rundkurs** mit Länge in Kilometern oder als Dauer bei gegebenem Tempo
 - **Sieben Trainingsarten** mit eigener Routenlogik: lockerer Dauerlauf, langer Lauf, Recovery, Tempodauerlauf, Intervalle, Wettkampf-Simulation, Fahrtspiel
+- **Parkrunden:** ganze Runden, Halbrunden und Bögen um Parks und Seen, automatisch zwischen den anderen Varianten
 - **Mehrere Varianten**, sortiert nach Eignung, mit Begründung der Empfehlung
-- **Kennzahlen je Route:** Anteil Grün und Wasser, Ampeln, ungesicherte Querungen, Abbiegungen, Belag, Wegtypen
-- **Intervall-Runden** ohne Querung und optionale Markierung für Steigerungen
+- **Kennzahlen je Route:** Anteil Grün und Wasser, längstes Stück im Grünen, Ampeln, ungesicherte Querungen, Abbiegungen, Belag, Wegtypen
+- **Intervall-Runden** um nahe Parks oder ohne Querung am Start, optionale Markierung für Steigerungen
 - **GPX-Export** für OsmAnd, Organic Maps oder Sportuhren
 - **Favoriten, Verlauf und Backup** (Export/Import als JSON)
 - Heller und dunkler Modus, für die Bedienung unterwegs ausgelegt
@@ -23,11 +24,11 @@ Das Routing übernimmt [BRouter](https://github.com/abrensch/brouter) auf Basis 
 
 Varianten entstehen in drei Schritten:
 
-1. **Grünflächen:** Aus Parks, Wäldern, Kleingärten, Wiesen, Gewässern und Kanälen entstehen Anker: Punkte in Grünflächen ab 1 ha, Uferpunkte an Gewässern ab 2 ha und Punkte entlang von Flüssen und Kanälen. Für die Regionen in `data/regions.json` (derzeit Hamburg und Berlin) sind sie vorberechnet und liegen als kleine Kacheln unter `data/green/`; ein Workflow erneuert sie monatlich aus den OpenStreetMap-Extrakten der Geofabrik. Anderswo fragt die App die Grünflächen bei der Overpass-API ab und speichert sie 30 Tage im Gerät. Kandidaten führen über ein bis drei Anker, deren geschätzte Länge zur Wunschlänge passt.
-2. **Geometrische Kandidaten:** Zusätzlich Rundkurse in mehreren Richtungen (Stützpunkte im Fächer um den Start) bzw. Bögen links und rechts der Luftlinie. Sie sichern die Länge ab und dienen als Rückfall, wenn keine Grünflächen-Daten verfügbar sind. Ist der direkte Weg schon lang genug, liefert BRouter Alternativrouten.
-3. **Auswahl:** Die günstigsten Kandidaten außerhalb des Längenbereichs werden nachgeregelt. Angezeigt werden drei möglichst verschiedene Varianten; zuerst die im Längenbereich, darunter die mit den geringsten Routing-Kosten pro Meter. Grün-Kandidaten setzen sich also nur durch, wenn sie laut Profil wirklich grüner und ruhiger sind.
+1. **Grünflächen:** Aus OpenStreetMap entstehen zwei Arten von Zielen. *Parkrunden:* der Umriss jeder Grünfläche ab 0,5 ha und jedes Sees ab 1 ha, alle 25 m auf den nächsten passenden Fußweg eingerastet (im Park auf Wege im Inneren, am See auf Uferwege). *Anker:* Punkte in Grünflächen ab 1 ha, an Gewässern ab 2 ha und entlang von Flüssen und Kanälen. Für die Regionen in `data/regions.json` (derzeit Hamburg und Berlin) ist beides vorberechnet und liegt als Kacheln unter `data/green/`; ein Workflow erneuert sie monatlich aus den OpenStreetMap-Extrakten der Geofabrik. Anderswo fragt die App die Grünflächen bei der Overpass-API ab (Parkrunden dann grob aus dem Umriss) und speichert sie 30 Tage im Gerät.
+2. **Kandidaten:** Runden, Halbrunden und Bögen um einen Park oder See, zwei Parks nacheinander, ein Park plus Anker oder ein bis drei Anker – jeweils mit geschätzter Länge passend zur Wunschlänge. Die Länge regelt die Bogenlänge am Park, nicht ein Umweg durch Seitenstraßen. Zusätzlich geometrische Rundkurse (Stützpunkte im Fächer um den Start) bzw. Bögen links und rechts der Luftlinie als Rückfall. Ist der direkte Weg schon lang genug, liefert BRouter Alternativrouten.
+3. **Auswahl:** Die besten Kandidaten außerhalb des Längenbereichs werden einmal nachgeregelt. Angezeigt werden drei möglichst verschiedene Varianten: zuerst die im Längenbereich, dann bis zur doppelten Toleranz, jeweils nach Bewertung. Die Bewertung sind die Routing-Kosten pro Meter (Grün, Wasser, Ruhe, wenig Stopps) plus Abzüge für Wenden auf Straßen und doppelt gelaufene Straßen.
 
-Der Längenbereich ist die Toleranz der Trainingsart, mindestens ±500 m. Wettkampf-Simulation und Intervalle bleiben eng (±2 % bzw. ±15 %). Kurze Stichwege, die nur entstehen, weil ein Stützpunkt in einer Seitenstraße liegt, entfernt BRouter selbst (`correctMisplacedViaPoints`, bis 400 m einfache Strecke). Längere Hin-und-zurück-Abschnitte bleiben erhalten.
+Der Längenbereich ist die Toleranz der Trainingsart (±5 %, Recovery ±15 %, mindestens ±250 m); Varianten bis zur doppelten Toleranz erscheinen nachrangig. Wettkampf-Simulation und Intervalle bleiben eng (±2 % bzw. ±15 %). Kurze Stichwege, die nur entstehen, weil ein Stützpunkt in einer Seitenstraße liegt, entfernt BRouter selbst (`correctMisplacedViaPoints`, bis 400 m einfache Strecke). Längere Hin-und-zurück-Abschnitte bleiben erhalten.
 
 Das Profil unterscheidet Wege im Grünen, sonstige Wege, Gehwege an Straßen (`footway=sidewalk`) und Straßen. Grün und Wasser (BRouter-Schätzklassen für Wald, Parks, Kleingärten, Ufer) senken vor allem die Kosten von Wegen, kaum die von Straßen am Parkrand.
 
@@ -54,12 +55,12 @@ Reine statische Seite ohne Build-Schritt: HTML, CSS und JavaScript, dazu Leaflet
 ```
 python3 -m http.server 8765        # App unter http://localhost:8765
 python3 tests/e2e.py               # Browser-Test, BRouter und Overpass simuliert
-python3 tests/e2e.py --brouter http://localhost:17777 --center <lon,lat> --scale 0.2
+python3 tests/e2e.py --brouter http://localhost:17777 --center <lon,lat> --scale 0.2 --green <kacheln>
 ```
 
-Der Test braucht [Playwright für Python](https://playwright.dev/python/) mit Chromium. Mit `--brouter` laufen alle Routing-Anfragen gegen einen echten Server.
+Der Test braucht [Playwright für Python](https://playwright.dev/python/) mit Chromium. Mit `--brouter` laufen alle Routing-Anfragen gegen einen echten Server, mit `--green` kommen die Grünflächen aus selbst erzeugten Kacheln (`python3 tools/green_anchors.py --pbf <datei.osm.pbf> --out <kacheln>`).
 
-**Benchmark:** Der Workflow `.github/workflows/benchmark.yml` startet bei Änderungen an App, Profil oder Benchmark einen eigenen BRouter mit echten Kartendaten (Hamburg, Berlin) und rechnet die Fälle aus `bench/cases.json` mit der aktuellen und älteren Versionen. Jede Route wird mit einem neutralen Messprofil nachgefahren und bewertet: Anteil Wege im Grünen, Straßen und Gehwege, Ampeln, Querungen, Abbiegungen, Stichwege, Länge, genutzte Grünflächen. Die Berichte liegen auf dem Branch [`bench-results`](../../tree/bench-results) (`latest/report.md`).
+**Benchmark:** Der Workflow `.github/workflows/benchmark.yml` startet bei Änderungen an App, Profil oder Benchmark einen eigenen BRouter mit echten Kartendaten (Hamburg, Berlin) und rechnet die Fälle aus `bench/cases.json` mit der aktuellen und älteren Versionen. Jede Route wird mit einem neutralen Messprofil nachgefahren und bewertet: Anteil Wege im Grünen, längstes Stück im Grünen, Straßen und Gehwege, Ampeln, Querungen, Abbiegungen, Wenden, doppelt gelaufene Straßen, Stichwege, Länge, genutzte Grünflächen. Dazu je Fall eine Karte (`bench/maps.py`, braucht osmium-tool). Die Berichte liegen auf dem Branch [`bench-results`](../../tree/bench-results) (`latest/report.md`).
 
 | Datei | Inhalt |
 |---|---|
@@ -69,8 +70,8 @@ Der Test braucht [Playwright für Python](https://playwright.dev/python/) mit Ch
 | `sw.js`, `manifest.webmanifest` | Installation und Offline-Start |
 | `vendor/leaflet/` | Leaflet 1.9.4 |
 | `tests/e2e.py` | End-to-End-Test |
-| `bench/` | Benchmark: Fälle, Runner, Messprofil, BRouter-Setup |
-| `tools/green_anchors.py`, `data/` | Grünflächen-Anker aus OpenStreetMap-Extrakten (ohne externe Abhängigkeiten), Regionenliste, Kacheln |
+| `bench/` | Benchmark: Fälle, Runner, Messprofil, Karten, BRouter-Setup |
+| `tools/green_anchors.py`, `data/` | Parkrunden und Grünflächen-Anker aus OpenStreetMap-Extrakten (ohne externe Abhängigkeiten), Regionenliste, Kacheln |
 
 ## Lizenz und Quellen
 

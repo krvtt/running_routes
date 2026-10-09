@@ -242,6 +242,16 @@ function errText(text, kind) {
   return 'Routing-Fehler: ' + (s.length > 160 ? s.slice(0, 160) + '…' : s || 'unbekannt');
 }
 const net = { calls: 0 };
+// Höchstens 4 Anfragen gleichzeitig: Der Server bricht sonst die ältesten ab (und er wird ehrenamtlich betrieben).
+const gate = (() => {
+  let active = 0;
+  const queue = [];
+  const next = () => { if (active < 4 && queue.length) { active++; queue.shift()(); } };
+  return async (fn) => {
+    await new Promise((res) => { queue.push(res); next(); });
+    try { return await fn(); } finally { active--; next(); }
+  };
+})();
 function query(points, params, extra) {
   const parts = ['lonlats=' + points.map((p) => p.lon.toFixed(6) + ',' + p.lat.toFixed(6)).join('|'),
     'profile=' + extra.pid, 'alternativeidx=' + (extra.alt || 0), 'format=geojson'];
@@ -259,9 +269,12 @@ async function brouter(points, ctx, extra) {
   for (let attempt = 0; attempt < 2; attempt++) {
     const q = query(points, ctx.params, Object.assign({ pid: ctx.pid }, extra || {}));
     let res, text;
-    net.calls++; ctx.onCall && ctx.onCall();
-    try { res = await fetchT(server() + '/brouter?' + q, {}, 60000); text = await res.text(); }
-    catch (e) { throw new RouteErr(e && e.name === 'AbortError' ? 'Routing-Server antwortet nicht (Zeitüberschreitung).' : 'Routing-Server nicht erreichbar. Internet prüfen.', 'net'); }
+    try {
+      await gate(async () => {
+        net.calls++; ctx.onCall && ctx.onCall();
+        res = await fetchT(server() + '/brouter?' + q, {}, 60000); text = await res.text();
+      });
+    } catch (e) { throw new RouteErr(e && e.name === 'AbortError' ? 'Routing-Server antwortet nicht (Zeitüberschreitung).' : 'Routing-Server nicht erreichbar. Internet prüfen.', 'net'); }
     if (res.ok && text.trim().charAt(0) === '{') {
       let gj;
       try { gj = JSON.parse(text); } catch (e) { throw new RouteErr('Antwort des Routing-Servers ist unvollständig.', 'other'); }
@@ -269,6 +282,7 @@ async function brouter(points, ctx, extra) {
     }
     const kind = errKind(text);
     if (kind === 'profile' && attempt === 0) { ctx.pid = await ensureProfile(true); continue; }
+    if (kind === 'busy' && attempt === 0) { await new Promise((r) => setTimeout(r, 800)); continue; }
     throw new RouteErr(errText(text, kind), kind);
   }
   throw new RouteErr('Routing fehlgeschlagen.', 'other');
@@ -906,20 +920,18 @@ function greenCombos(B, L, anchors, f, loop) {
   for (let i = 0; i < top.length; i++) for (let j = i + 1; j < top.length; j++) for (let k = j + 1; k < top.length; k++) add([top[i], top[j], top[k]]);
   return combos;
 }
-// Verschiedene Kandidaten wählen: keine gleiche Flächen-Kombination, jede Parkrunde höchstens zweimal
-function distinctPicks(cands, n, skip) {
+// Verschiedene Kandidaten wählen: je eine Quote mit und ohne Parkrunde (die Schätzung des Grünanteils ist für
+// beide Arten verschieden gut), keine gleiche Flächen-Kombination, jede Parkrunde höchstens zweimal
+function distinctPicks(cands, nRing, nOther, skip) {
   const out = [], sigs = new Set(), use = new Map();
   const take = (c) => {
-    if (skip.has(c.key) || sigs.has(c.sig)) return false;
-    const main = c.main;
-    if ((use.get(main) || 0) >= 2) return false;
-    out.push(c); sigs.add(c.sig); use.set(main, (use.get(main) || 0) + 1);
-    return true;
+    if (skip.has(c.key) || sigs.has(c.sig) || (use.get(c.main) || 0) >= 2) return;
+    out.push(c); sigs.add(c.sig); use.set(c.main, (use.get(c.main) || 0) + 1);
   };
-  const firstOnly = cands.find((c) => !c.ring && !skip.has(c.key)); // mindestens ein reiner Anker-Kandidat (z. B. Kanalufer)
-  for (const c of cands) { if (out.length >= n - (firstOnly ? 1 : 0)) break; take(c); }
-  if (firstOnly && out.indexOf(firstOnly) < 0) take(firstOnly);
-  for (const c of cands) { if (out.length >= n) break; take(c); }
+  let k = 0;
+  for (const c of cands) { if (k >= nRing) break; if (c.ring) { const n = out.length; take(c); k += out.length - n; } }
+  k = 0;
+  for (const c of cands) { if (k >= nOther) break; if (!c.ring) { const n = out.length; take(c); k += out.length - n; } }
   return out;
 }
 function stopsVias(stops) {
@@ -946,11 +958,11 @@ async function greenVariants(A, B, L, pr, ctx, notes, loop) {
   if (!anchors.length && !rings.length) return out;
   const route = (c) => brouter([A].concat(stopsVias(c.stops).map((q) => P.from(q)), [loop ? A : B]), ctx, {})
     .then((r) => Object.assign(r, { err: (r.dist - L) / L, name: comboName(c.stops), combo: c, green: true }));
-  const picks = distinctPicks(candidates(Bq, L, anchors, rings, 1.3, loop), pr.lap ? 2 : 6, skip);
+  const picks = distinctPicks(candidates(Bq, L, anchors, rings, 1.3, loop), pr.lap ? 1 : 4, pr.lap ? 1 : 3, skip);
   out.push(...settled(await Promise.allSettled(picks.map(route)), notes));
   state.arcCount = picks.filter((c) => c.ring).length;
   // Länge nachregeln: Bogen verlängern oder kürzen (statt Umwege in Seitenstraßen), sonst Anker weglassen
-  const fix = out.filter((v) => v.combo && !v.lapN && !inBand(v, L, pr)).sort((a, b) => score(a) - score(b)).slice(0, 3);
+  const fix = out.filter((v) => v.combo && !v.lapN && !inBand(v, L, pr) && Math.abs(v.err) < 0.3).sort((a, b) => score(a) - score(b)).slice(0, 4);
   out.push(...settled(await Promise.allSettled(fix.map((v) => {
     const c = v.combo;
     if (c.el) {
@@ -994,6 +1006,7 @@ async function routeLap(c, L, ctx, P) {
   const pts = stopsVias(c.stops).map((q) => P.from(q));
   const r = await brouter(pts, ctx, {});
   const nm = c.R.name || (c.R.water ? 'Seeufer' : 'Park');
+  r.pen = (r.pen || 0) + (c.n - 1) * 0.05 * r.cost; // eine Runde pro Wiederholung ist angenehmer als mehrere kleine
   return Object.assign(r, { err: (r.dist - L) / L, name: (c.n > 1 ? c.n + ' Runden: ' : 'Runde: ') + nm, combo: c, green: true, lapTo: c.to, lapN: c.n });
 }
 
